@@ -28,6 +28,13 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      - name: Ensure Resource Group exists
+        run: |
+          az group create \
+            --name "${{ env.AZURE_RESOURCE_GROUP }}" \
+            --location "${{ env.AZURE_LOCATION }}" \
+            --output none
+
       - name: Deploy Infrastructure
         uses: azure/arm-deploy@v2
         id: infra
@@ -42,38 +49,34 @@ jobs:
             imageTag=${{ env.IMAGE_TAG }}
           failOnStdErr: false
 
-      - name: Get ACR Login Server
-        id: acr
-        run: |
-          ACR_LOGIN_SERVER=${{ steps.infra.outputs.acrLoginServer }}
-          echo "acrLoginServer=$ACR_LOGIN_SERVER" >> "$GITHUB_OUTPUT"
-
       - name: ACR Login
-        run: az acr login --name $(echo ${{ steps.acr.outputs.acrLoginServer }} | cut -d'.' -f1)
+        run: |
+          ACR_NAME=$(echo "${{ steps.infra.outputs.acrLoginServer }}" | cut -d'.' -f1)
+          az acr login --name "$ACR_NAME"
 
       - name: Build & Push SPA Image
         run: |
-          docker build -t ${{ steps.acr.outputs.acrLoginServer }}/demo-realtime-gpt-spa:${{ env.IMAGE_TAG }} .
-          docker push ${{ steps.acr.outputs.acrLoginServer }}/demo-realtime-gpt-spa:${{ env.IMAGE_TAG }}
+          docker build -t "${{ steps.infra.outputs.acrLoginServer }}/demo-realtime-gpt-spa:${{ env.IMAGE_TAG }}" .
+          docker push "${{ steps.infra.outputs.acrLoginServer }}/demo-realtime-gpt-spa:${{ env.IMAGE_TAG }}"
 
       - name: Build & Push API Image
         run: |
-          docker build -t ${{ steps.acr.outputs.acrLoginServer }}/demo-realtime-gpt-api:${{ env.IMAGE_TAG }} ./services/api
-          docker push ${{ steps.acr.outputs.acrLoginServer }}/demo-realtime-gpt-api:${{ env.IMAGE_TAG }}
+          docker build -t "${{ steps.infra.outputs.acrLoginServer }}/demo-realtime-gpt-api:${{ env.IMAGE_TAG }}" ./services/api
+          docker push "${{ steps.infra.outputs.acrLoginServer }}/demo-realtime-gpt-api:${{ env.IMAGE_TAG }}"
 
       - name: Update SPA Container App
         run: |
           az containerapp update \
             --name demo-realtime-gpt-spa \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --image ${{ steps.acr.outputs.acrLoginServer }}/demo-realtime-gpt-spa:${{ env.IMAGE_TAG }}
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+            --image "${{ steps.infra.outputs.acrLoginServer }}/demo-realtime-gpt-spa:${{ env.IMAGE_TAG }}"
 
       - name: Update API Container App
         run: |
           az containerapp update \
             --name demo-realtime-gpt-api \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --image ${{ steps.acr.outputs.acrLoginServer }}/demo-realtime-gpt-api:${{ env.IMAGE_TAG }}
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+            --image "${{ steps.infra.outputs.acrLoginServer }}/demo-realtime-gpt-api:${{ env.IMAGE_TAG }}"
 
       - name: Output URL
         run: |

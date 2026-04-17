@@ -56,6 +56,7 @@ module api 'modules/aca-api.bicep' = {
     environmentId: environment.outputs.environmentId
     acrLoginServer: acr.outputs.acrLoginServer
     identityId: identity.outputs.identityId
+    identityClientId: identity.outputs.identityClientId
     imageTag: imageTag
     azureOpenAIEndpoint: azureOpenAIEndpoint
     azureOpenAIDeployment: azureOpenAIDeployment
@@ -72,6 +73,7 @@ module spa 'modules/aca-spa.bicep' = {
     acrLoginServer: acr.outputs.acrLoginServer
     identityId: identity.outputs.identityId
     imageTag: imageTag
+    apiHost: '${baseName}-api'
   }
 }
 

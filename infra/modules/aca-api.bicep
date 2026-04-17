@@ -22,6 +22,9 @@ param azureOpenAIEndpoint string
 @description('Azure OpenAI deployment name')
 param azureOpenAIDeployment string
 
+@description('Client ID of the user-assigned managed identity')
+param identityClientId string
+
 resource api 'Microsoft.App/containerApps@2024-03-01' = {
   name: '${baseName}-api'
   location: location
@@ -59,7 +62,7 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'PORT', value: '3001' }
             { name: 'AZURE_OPENAI_ENDPOINT', value: azureOpenAIEndpoint }
             { name: 'AZURE_OPENAI_DEPLOYMENT', value: azureOpenAIDeployment }
-            { name: 'AZURE_CLIENT_ID', value: '' }
+            { name: 'AZURE_CLIENT_ID', value: identityClientId }
           ]
         }
       ]
