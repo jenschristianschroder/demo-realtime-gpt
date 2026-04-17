@@ -16,6 +16,9 @@ param identityId string
 @description('Container image tag')
 param imageTag string
 
+@description('Internal API host (container app name or host:port)')
+param apiHost string
+
 resource spa 'Microsoft.App/containerApps@2024-03-01' = {
   name: '${baseName}-spa'
   location: location
@@ -49,6 +52,9 @@ resource spa 'Microsoft.App/containerApps@2024-03-01' = {
             cpu: json('0.25')
             memory: '0.5Gi'
           }
+          env: [
+            { name: 'API_HOST', value: apiHost }
+          ]
         }
       ]
       scale: {
