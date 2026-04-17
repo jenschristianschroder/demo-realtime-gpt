@@ -1,0 +1,273 @@
+const SAMPLE_RATE = 24000;
+const BUFFER_SIZE = 4800; // 200ms at 24kHz
+
+export type RealtimeEventType =
+  | 'session.created'
+  | 'session.updated'
+  | 'input_audio_buffer.speech_started'
+  | 'input_audio_buffer.speech_stopped'
+  | 'input_audio_buffer.committed'
+  | 'conversation.item.created'
+  | 'response.created'
+  | 'response.output_item.added'
+  | 'response.audio_transcript.delta'
+  | 'response.audio_transcript.done'
+  | 'response.audio.delta'
+  | 'response.audio.done'
+  | 'response.text.delta'
+  | 'response.text.done'
+  | 'response.done'
+  | 'conversation.item.input_audio_transcription.completed'
+  | 'error';
+
+export interface RealtimeEvent {
+  type: RealtimeEventType;
+  [key: string]: unknown;
+}
+
+export interface RealtimeClientOptions {
+  systemPrompt: string;
+  onEvent?: (event: RealtimeEvent) => void;
+  onError?: (error: Error) => void;
+  onClose?: () => void;
+}
+
+export class RealtimeClient {
+  private ws: WebSocket | null = null;
+  private audioContext: AudioContext | null = null;
+  private mediaStream: MediaStream | null = null;
+  private workletNode: AudioWorkletNode | null = null;
+  private sourceNode: MediaStreamAudioSourceNode | null = null;
+  private playbackQueue: Float32Array[] = [];
+  private isPlaying = false;
+  private options: RealtimeClientOptions;
+  private nextPlaybackTime = 0;
+
+  constructor(options: RealtimeClientOptions) {
+    this.options = options;
+  }
+
+  async connect(): Promise<void> {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws/realtime`;
+
+    this.ws = new WebSocket(wsUrl);
+    this.ws.binaryType = 'arraybuffer';
+
+    return new Promise<void>((resolve, reject) => {
+      if (!this.ws) return reject(new Error('WebSocket not initialized'));
+
+      this.ws.onopen = () => {
+        this.sendSessionUpdate();
+        resolve();
+      };
+
+      this.ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data as string) as RealtimeEvent;
+          this.handleEvent(data);
+        } catch {
+          // binary audio data or parse error — ignore
+        }
+      };
+
+      this.ws.onerror = () => {
+        reject(new Error('WebSocket connection failed'));
+      };
+
+      this.ws.onclose = () => {
+        this.options.onClose?.();
+      };
+    });
+  }
+
+  private sendSessionUpdate(): void {
+    this.send({
+      type: 'session.update',
+      session: {
+        modalities: ['text', 'audio'],
+        instructions: this.options.systemPrompt,
+        input_audio_format: 'pcm16',
+        output_audio_format: 'pcm16',
+        input_audio_transcription: {
+          model: 'whisper-1',
+        },
+        turn_detection: {
+          type: 'server_vad',
+          threshold: 0.5,
+          prefix_padding_ms: 300,
+          silence_duration_ms: 500,
+        },
+      },
+    });
+  }
+
+  private handleEvent(event: RealtimeEvent): void {
+    if (event.type === 'response.audio.delta') {
+      const audioData = event.delta as string;
+      this.queueAudio(audioData);
+    }
+
+    if (event.type === 'input_audio_buffer.speech_started') {
+      this.clearPlayback();
+    }
+
+    if (event.type === 'error') {
+      const errorEvent = event as RealtimeEvent & { error?: { message?: string } };
+      this.options.onError?.(new Error(errorEvent.error?.message ?? 'Realtime API error'));
+    }
+
+    this.options.onEvent?.(event);
+  }
+
+  async startMicrophone(): Promise<void> {
+    this.audioContext = new AudioContext({ sampleRate: SAMPLE_RATE });
+
+    // Use ScriptProcessor as a simpler fallback that works cross-browser
+    this.mediaStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        sampleRate: SAMPLE_RATE,
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true,
+      },
+    });
+
+    this.sourceNode = this.audioContext.createMediaStreamSource(this.mediaStream);
+
+    const processor = this.audioContext.createScriptProcessor(BUFFER_SIZE, 1, 1);
+    processor.onaudioprocess = (e) => {
+      const inputData = e.inputBuffer.getChannelData(0);
+      const pcm16 = this.float32ToPcm16(inputData);
+      this.sendAudio(pcm16);
+    };
+
+    this.sourceNode.connect(processor);
+    processor.connect(this.audioContext.destination);
+    this.workletNode = processor as unknown as AudioWorkletNode;
+  }
+
+  stopMicrophone(): void {
+    if (this.workletNode) {
+      this.workletNode.disconnect();
+      this.workletNode = null;
+    }
+    if (this.sourceNode) {
+      this.sourceNode.disconnect();
+      this.sourceNode = null;
+    }
+    if (this.mediaStream) {
+      this.mediaStream.getTracks().forEach((t) => t.stop());
+      this.mediaStream = null;
+    }
+  }
+
+  private sendAudio(pcm16: ArrayBuffer): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+
+    const bytes = new Uint8Array(pcm16);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    const base64 = btoa(binary);
+
+    this.send({
+      type: 'input_audio_buffer.append',
+      audio: base64,
+    });
+  }
+
+  private queueAudio(base64Audio: string): void {
+    const binary = atob(base64Audio);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    const pcm16 = new Int16Array(bytes.buffer);
+    const float32 = new Float32Array(pcm16.length);
+    for (let i = 0; i < pcm16.length; i++) {
+      float32[i] = pcm16[i] / 32768;
+    }
+    this.playbackQueue.push(float32);
+
+    if (!this.isPlaying) {
+      this.playNext();
+    }
+  }
+
+  private playNext(): void {
+    if (!this.audioContext || this.playbackQueue.length === 0) {
+      this.isPlaying = false;
+      return;
+    }
+
+    this.isPlaying = true;
+    const samples = this.playbackQueue.shift()!;
+    const buffer = this.audioContext.createBuffer(1, samples.length, SAMPLE_RATE);
+    buffer.getChannelData(0).set(samples);
+
+    const source = this.audioContext.createBufferSource();
+    source.buffer = buffer;
+    source.connect(this.audioContext.destination);
+
+    const now = this.audioContext.currentTime;
+    const startTime = Math.max(now, this.nextPlaybackTime);
+    source.start(startTime);
+    this.nextPlaybackTime = startTime + buffer.duration;
+
+    source.onended = () => {
+      this.playNext();
+    };
+  }
+
+  private clearPlayback(): void {
+    this.playbackQueue = [];
+    this.nextPlaybackTime = 0;
+    this.isPlaying = false;
+  }
+
+  private float32ToPcm16(float32: Float32Array): ArrayBuffer {
+    const pcm16 = new Int16Array(float32.length);
+    for (let i = 0; i < float32.length; i++) {
+      const s = Math.max(-1, Math.min(1, float32[i]));
+      pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+    }
+    return pcm16.buffer;
+  }
+
+  send(event: Record<string, unknown>): void {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(event));
+    }
+  }
+
+  sendText(text: string): void {
+    this.send({
+      type: 'conversation.item.create',
+      item: {
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'input_text', text }],
+      },
+    });
+    this.send({ type: 'response.create' });
+  }
+
+  disconnect(): void {
+    this.stopMicrophone();
+    this.clearPlayback();
+    if (this.audioContext) {
+      this.audioContext.close();
+      this.audioContext = null;
+    }
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
+  }
+
+  get connected(): boolean {
+    return this.ws?.readyState === WebSocket.OPEN;
+  }
+}
