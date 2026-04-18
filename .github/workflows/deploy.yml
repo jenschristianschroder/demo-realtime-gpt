@@ -44,7 +44,6 @@ jobs:
           parameters: >-
             location=${{ env.AZURE_LOCATION }}
             baseName=demo-realtime-gpt
-            azureOpenAIResourceId=${{ secrets.AZURE_OPENAI_RESOURCE_ID }}
           failOnStdErr: false
 
       - name: ACR Login

@@ -1,9 +1,22 @@
 import { DefaultAzureCredential } from '@azure/identity';
 
-const credential = new DefaultAzureCredential();
+const AZURE_OPENAI_API_KEY = process.env.AZURE_OPENAI_API_KEY ?? '';
+
+let credential: DefaultAzureCredential | null = null;
 const scope = 'https://cognitiveservices.azure.com/.default';
 
+export function useApiKey(): boolean {
+  return AZURE_OPENAI_API_KEY.length > 0;
+}
+
+export function getApiKey(): string {
+  return AZURE_OPENAI_API_KEY;
+}
+
 export async function getAzureOpenAIToken(): Promise<string> {
+  if (!credential) {
+    credential = new DefaultAzureCredential();
+  }
   const token = await credential.getToken(scope);
   return token.token;
 }

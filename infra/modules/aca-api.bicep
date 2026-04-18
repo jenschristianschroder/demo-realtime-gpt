@@ -10,7 +10,7 @@ param environmentId string
 @description('ACR login server')
 param acrLoginServer string
 
-@description('User-assigned managed identity resource ID')
+@description('User-assigned managed identity resource ID (used for ACR pull)')
 param identityId string
 
 @description('Container image tag')
@@ -22,14 +22,14 @@ param azureOpenAIEndpoint string
 @description('Azure OpenAI deployment name')
 param azureOpenAIDeployment string
 
-@description('Client ID of the user-assigned managed identity')
-param identityClientId string
+@description('Azure OpenAI resource ID for role assignment')
+param azureOpenAIResourceId string
 
 resource api 'Microsoft.App/containerApps@2024-03-01' = {
   name: '${baseName}-api'
   location: location
   identity: {
-    type: 'UserAssigned'
+    type: 'SystemAssigned,UserAssigned'
     userAssignedIdentities: {
       '${identityId}': {}
     }
@@ -62,7 +62,6 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'PORT', value: '3001' }
             { name: 'AZURE_OPENAI_ENDPOINT', value: azureOpenAIEndpoint }
             { name: 'AZURE_OPENAI_DEPLOYMENT', value: azureOpenAIDeployment }
-            { name: 'AZURE_CLIENT_ID', value: identityClientId }
           ]
         }
       ]
@@ -71,6 +70,16 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
         maxReplicas: 3
       }
     }
+  }
+}
+
+// Cognitive Services User role for the system-assigned managed identity
+resource cognitiveServicesUserRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(azureOpenAIResourceId, api.id, 'a97b65f3-24c7-4388-baec-2e87135dc908')
+  properties: {
+    principalId: api.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'a97b65f3-24c7-4388-baec-2e87135dc908')
   }
 }
 
