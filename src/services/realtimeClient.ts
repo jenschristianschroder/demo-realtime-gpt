@@ -121,10 +121,11 @@ export class RealtimeClient {
     if (event.type === 'debug') {
       const debugEvent = event as RealtimeEvent & { debug?: { message?: string; [key: string]: unknown } };
       const { message, ...details } = debugEvent.debug ?? {};
+      const label = '[relay]';
       if (Object.keys(details).length > 0) {
-        console.debug(`[relay] ${message ?? 'debug'}`, details);
+        console.debug(label, message ?? 'debug', details);
       } else {
-        console.debug(`[relay] ${message ?? 'debug'}`);
+        console.debug(label, message ?? 'debug');
       }
       return;
     }
