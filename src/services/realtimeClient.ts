@@ -1,5 +1,5 @@
 const SAMPLE_RATE = 24000;
-const BUFFER_SIZE = 4800; // 200ms at 24kHz
+const BUFFER_SIZE = 4096; // ~170ms at 24kHz (must be power of 2 for createScriptProcessor)
 
 export type RealtimeEventType =
   | 'session.created'
