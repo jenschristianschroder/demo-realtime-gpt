@@ -6,6 +6,16 @@ import { getAzureOpenAIToken, getRealtimeEndpoint, useApiKey, getApiKey } from '
 const AZURE_OPENAI_ENDPOINT = process.env.AZURE_OPENAI_ENDPOINT ?? '';
 const AZURE_OPENAI_DEPLOYMENT = process.env.AZURE_OPENAI_DEPLOYMENT ?? 'gpt-4o-realtime-preview';
 
+function sendDebug(ws: WebSocket, message: string, details?: Record<string, unknown>): void {
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({
+      type: 'debug',
+      debug: { message, timestamp: new Date().toISOString(), ...details },
+    }));
+  }
+  console.log(`[relay] ${message}`, details ?? '');
+}
+
 export function attachRealtimeWebSocket(server: Server): void {
   if (!AZURE_OPENAI_ENDPOINT) {
     console.error('[relay] AZURE_OPENAI_ENDPOINT is not set. WebSocket relay will not be attached.');
@@ -30,19 +40,33 @@ export function attachRealtimeWebSocket(server: Server): void {
     let azureReady = false;
     const messageBuffer: RawData[] = [];
 
+    const authMethod = useApiKey() ? 'api-key' : 'managed-identity';
+    sendDebug(clientWs, 'Client connected to relay', {
+      endpoint: AZURE_OPENAI_ENDPOINT,
+      deployment: AZURE_OPENAI_DEPLOYMENT,
+      authMethod,
+    });
+
     try {
       const wsUrl = getRealtimeEndpoint(AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_DEPLOYMENT);
+      sendDebug(clientWs, 'Connecting to Azure OpenAI Realtime', {
+        wsUrl,
+        authMethod,
+      });
 
       let headers: Record<string, string>;
       if (useApiKey()) {
         headers = {
           'api-key': getApiKey(),
         };
+        sendDebug(clientWs, 'Using API key authentication');
       } else {
+        sendDebug(clientWs, 'Acquiring Azure AD token via DefaultAzureCredential...');
         const token = await getAzureOpenAIToken();
         headers = {
           'Authorization': `Bearer ${token}`,
         };
+        sendDebug(clientWs, 'Azure AD token acquired successfully');
       }
 
       azureWs = new WebSocket(wsUrl, {
@@ -51,9 +75,13 @@ export function attachRealtimeWebSocket(server: Server): void {
 
       azureWs.on('open', () => {
         console.log('[relay] Connected to Azure OpenAI Realtime');
+        sendDebug(clientWs, 'Successfully connected to Azure OpenAI Realtime');
         azureReady = true;
 
         // Flush any messages that arrived before Azure was ready
+        if (messageBuffer.length > 0) {
+          sendDebug(clientWs, `Flushing ${messageBuffer.length} buffered message(s)`);
+        }
         for (const msg of messageBuffer) {
           azureWs!.send(msg);
         }
@@ -69,6 +97,17 @@ export function attachRealtimeWebSocket(server: Server): void {
 
       azureWs.on('error', (err) => {
         console.error('[relay] Azure WS error:', err.message);
+        sendDebug(clientWs, 'Azure WebSocket error', {
+          errorMessage: err.message,
+          authMethod,
+          endpoint: AZURE_OPENAI_ENDPOINT,
+          deployment: AZURE_OPENAI_DEPLOYMENT,
+          hint: err.message.includes('401')
+            ? 'Authentication failed. Verify your API key or managed identity configuration.'
+            : err.message.includes('404')
+              ? 'Endpoint or deployment not found. Verify AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_DEPLOYMENT.'
+              : undefined,
+        });
         if (clientWs.readyState === WebSocket.OPEN) {
           clientWs.send(JSON.stringify({
             type: 'error',
@@ -80,6 +119,10 @@ export function attachRealtimeWebSocket(server: Server): void {
 
       azureWs.on('close', (code, reason) => {
         console.log(`[relay] Azure WS closed: ${code} ${reason.toString()}`);
+        sendDebug(clientWs, 'Azure WebSocket closed', {
+          code,
+          reason: reason.toString(),
+        });
         if (clientWs.readyState === WebSocket.OPEN) {
           clientWs.close(1000, 'Upstream closed');
         }
@@ -110,6 +153,15 @@ export function attachRealtimeWebSocket(server: Server): void {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error('[relay] Failed to establish Azure connection:', message);
+      sendDebug(clientWs, 'Failed to establish Azure connection', {
+        errorMessage: message,
+        authMethod,
+        endpoint: AZURE_OPENAI_ENDPOINT,
+        deployment: AZURE_OPENAI_DEPLOYMENT,
+        hint: authMethod === 'managed-identity'
+          ? 'Token acquisition failed. Ensure DefaultAzureCredential is properly configured (managed identity in Azure, Azure CLI locally).'
+          : 'Check that AZURE_OPENAI_API_KEY is valid.',
+      });
       if (clientWs.readyState === WebSocket.OPEN) {
         clientWs.send(JSON.stringify({
           type: 'error',
