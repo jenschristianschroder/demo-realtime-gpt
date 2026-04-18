@@ -1,5 +1,18 @@
 const SAMPLE_RATE = 24000;
-const BUFFER_SIZE = 4096; // ~170ms at 24kHz (must be power of 2 for createScriptProcessor)
+
+const PCM_WORKLET_NAME = 'pcm-capture-processor';
+const PCM_WORKLET_CODE = `
+class PcmCaptureProcessor extends AudioWorkletProcessor {
+  process(inputs) {
+    const input = inputs[0];
+    if (input && input[0]) {
+      this.port.postMessage(input[0]);
+    }
+    return true;
+  }
+}
+registerProcessor('${PCM_WORKLET_NAME}', PcmCaptureProcessor);
+`;
 
 export type RealtimeEventType =
   | 'session.created'
@@ -123,7 +136,6 @@ export class RealtimeClient {
   async startMicrophone(): Promise<void> {
     this.audioContext = new AudioContext({ sampleRate: SAMPLE_RATE });
 
-    // Use ScriptProcessor as a simpler fallback that works cross-browser
     this.mediaStream = await navigator.mediaDevices.getUserMedia({
       audio: {
         sampleRate: SAMPLE_RATE,
@@ -135,16 +147,22 @@ export class RealtimeClient {
 
     this.sourceNode = this.audioContext.createMediaStreamSource(this.mediaStream);
 
-    const processor = this.audioContext.createScriptProcessor(BUFFER_SIZE, 1, 1);
-    processor.onaudioprocess = (e) => {
-      const inputData = e.inputBuffer.getChannelData(0);
-      const pcm16 = this.float32ToPcm16(inputData);
+    const blob = new Blob([PCM_WORKLET_CODE], { type: 'application/javascript' });
+    const workletUrl = URL.createObjectURL(blob);
+    try {
+      await this.audioContext.audioWorklet.addModule(workletUrl);
+    } finally {
+      URL.revokeObjectURL(workletUrl);
+    }
+
+    this.workletNode = new AudioWorkletNode(this.audioContext, PCM_WORKLET_NAME);
+    this.workletNode.port.onmessage = (e: MessageEvent<Float32Array>) => {
+      const pcm16 = this.float32ToPcm16(e.data);
       this.sendAudio(pcm16);
     };
 
-    this.sourceNode.connect(processor);
-    processor.connect(this.audioContext.destination);
-    this.workletNode = processor as unknown as AudioWorkletNode;
+    this.sourceNode.connect(this.workletNode);
+    this.workletNode.connect(this.audioContext.destination);
   }
 
   stopMicrophone(): void {
