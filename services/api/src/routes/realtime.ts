@@ -1,7 +1,7 @@
 import { IncomingMessage } from 'http';
 import { WebSocketServer, WebSocket, RawData } from 'ws';
 import type { Server } from 'http';
-import { getAzureOpenAIToken, getRealtimeEndpoint } from '../azureClient.js';
+import { getAzureOpenAIToken, getRealtimeEndpoint, useApiKey, getApiKey } from '../azureClient.js';
 
 const AZURE_OPENAI_ENDPOINT = process.env.AZURE_OPENAI_ENDPOINT ?? '';
 const AZURE_OPENAI_DEPLOYMENT = process.env.AZURE_OPENAI_DEPLOYMENT ?? 'gpt-4o-realtime-preview';
@@ -31,14 +31,22 @@ export function attachRealtimeWebSocket(server: Server): void {
     const messageBuffer: RawData[] = [];
 
     try {
-      const token = await getAzureOpenAIToken();
       const wsUrl = getRealtimeEndpoint(AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_DEPLOYMENT);
 
-      azureWs = new WebSocket(wsUrl, {
-        headers: {
+      let headers: Record<string, string>;
+      if (useApiKey()) {
+        headers = {
+          'api-key': getApiKey(),
+        };
+      } else {
+        const token = await getAzureOpenAIToken();
+        headers = {
           'Authorization': `Bearer ${token}`,
-          'OpenAI-Beta': 'realtime=v1',
-        },
+        };
+      }
+
+      azureWs = new WebSocket(wsUrl, {
+        headers,
       });
 
       azureWs.on('open', () => {
