@@ -6,9 +6,6 @@ param location string = resourceGroup().location
 @description('Base name for resources')
 param baseName string = 'demo-realtime-gpt'
 
-@description('Azure OpenAI resource ID for role assignment')
-param azureOpenAIResourceId string
-
 // Container Registry
 module acr 'modules/acr.bicep' = {
   name: 'acr'
@@ -34,7 +31,6 @@ module identity 'modules/identity.bicep' = {
     location: location
     baseName: baseName
     acrId: acr.outputs.acrId
-    azureOpenAIResourceId: azureOpenAIResourceId
   }
 }
 

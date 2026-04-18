@@ -43,7 +43,6 @@ module identity 'modules/identity.bicep' = {
     location: location
     baseName: baseName
     acrId: acr.outputs.acrId
-    azureOpenAIResourceId: azureOpenAIResourceId
   }
 }
 
@@ -56,10 +55,10 @@ module api 'modules/aca-api.bicep' = {
     environmentId: environment.outputs.environmentId
     acrLoginServer: acr.outputs.acrLoginServer
     identityId: identity.outputs.identityId
-    identityClientId: identity.outputs.identityClientId
     imageTag: imageTag
     azureOpenAIEndpoint: azureOpenAIEndpoint
     azureOpenAIDeployment: azureOpenAIDeployment
+    azureOpenAIResourceId: azureOpenAIResourceId
   }
 }
 
