@@ -31,7 +31,8 @@ export type RealtimeEventType =
   | 'response.text.done'
   | 'response.done'
   | 'conversation.item.input_audio_transcription.completed'
-  | 'error';
+  | 'error'
+  | 'debug';
 
 export interface RealtimeEvent {
   type: RealtimeEventType;
@@ -85,6 +86,7 @@ export class RealtimeClient {
       };
 
       this.ws.onerror = () => {
+        console.error('[realtime] WebSocket connection failed');
         reject(new Error('WebSocket connection failed'));
       };
 
@@ -116,6 +118,18 @@ export class RealtimeClient {
   }
 
   private handleEvent(event: RealtimeEvent): void {
+    if (event.type === 'debug') {
+      const debugEvent = event as RealtimeEvent & { debug?: { message?: string; [key: string]: unknown } };
+      const { message, ...details } = debugEvent.debug ?? {};
+      const label = '[relay]';
+      if (Object.keys(details).length > 0) {
+        console.debug(label, message ?? 'debug', details);
+      } else {
+        console.debug(label, message ?? 'debug');
+      }
+      return;
+    }
+
     if (event.type === 'response.audio.delta') {
       const audioData = event.delta as string;
       this.queueAudio(audioData);
