@@ -118,8 +118,7 @@ jobs:
               if "://" not in value:
                   value = f"https://{value}"
               parsed = urlparse(value)
-              host = (parsed.netloc or parsed.path).strip().rstrip("/")
-              host = host.split("@")[-1].split(":")[0].lower()
+              host = (parsed.hostname or "").strip().lower()
               return f"https://{host}" if host else ""
 
           expected_endpoint = normalize_endpoint(endpoint)
@@ -137,7 +136,8 @@ jobs:
           )
 
           if not match:
-              expected_name = expected_endpoint[len('https://'):].split('.', 1)[0]
+              expected_host = urlparse(expected_endpoint).hostname or ''
+              expected_name = expected_host.split('.', 1)[0]
               name_matches = [
                   account.get('id', '')
                   for account in accounts
