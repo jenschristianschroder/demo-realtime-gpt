@@ -7,7 +7,7 @@ param location string = resourceGroup().location
 param baseName string = 'demo-realtime-gpt'
 
 @description('Azure OpenAI resource ID for role assignment')
-param azureOpenAIResourceId string
+param azureOpenAIResourceId string = ''
 
 @description('Container image tag')
 param imageTag string = 'latest'

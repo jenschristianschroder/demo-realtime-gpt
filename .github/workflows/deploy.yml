@@ -45,19 +45,30 @@ jobs:
           set -euo pipefail
           errors=0
 
+          trim() {
+            local value="$1"
+            value="${value#"${value%%[![:space:]]*}"}"
+            value="${value%"${value##*[![:space:]]}"}"
+            printf '%s' "$value"
+          }
+
+          OPENAI_RESOURCE_ID_SECRET="$(trim "$AZURE_OPENAI_RESOURCE_ID_SECRET")"
+          OPENAI_API_KEY_SECRET="$(trim "$AZURE_OPENAI_API_KEY_SECRET")"
+          OPENAI_ENDPOINT_SECRET="$(trim "$AZURE_OPENAI_ENDPOINT_SECRET")"
+
           if [ -z "$AZURE_RESOURCE_GROUP" ]; then
             echo "::error::AZURE_RESOURCE_GROUP secret is not set."
             errors=$((errors + 1))
           fi
 
-          if [ -z "$AZURE_OPENAI_ENDPOINT_SECRET" ]; then
+          if [ -z "$OPENAI_ENDPOINT_SECRET" ]; then
             echo "::error::AZURE_OPENAI_ENDPOINT secret is not set. It is required for the API container app configuration."
             errors=$((errors + 1))
           fi
 
-          if [ -z "$AZURE_OPENAI_RESOURCE_ID_SECRET" ] && [ -n "$AZURE_OPENAI_API_KEY_SECRET" ]; then
+          if [ -z "$OPENAI_RESOURCE_ID_SECRET" ] && [ -n "$OPENAI_API_KEY_SECRET" ]; then
             echo "::notice::AZURE_OPENAI_RESOURCE_ID is not set, but AZURE_OPENAI_API_KEY is provided. Deployment will use API key auth and skip managed-identity role assignment."
-          elif [ -z "$AZURE_OPENAI_RESOURCE_ID_SECRET" ]; then
+          elif [ -z "$OPENAI_RESOURCE_ID_SECRET" ]; then
             echo "::warning::AZURE_OPENAI_RESOURCE_ID is not set. The workflow will attempt to auto-resolve it from AZURE_OPENAI_ENDPOINT. For reliable managed-identity deployments, set AZURE_OPENAI_RESOURCE_ID to the full Azure resource ID of your Azure OpenAI resource (e.g. /subscriptions/.../resourceGroups/.../providers/Microsoft.CognitiveServices/accounts/...)."
           fi
 
