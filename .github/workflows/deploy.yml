@@ -137,11 +137,11 @@ jobs:
 
           if not match:
               expected_host = urlparse(expected_endpoint).hostname or ''
-              expected_name = expected_host.split('.', 1)[0]
+              expected_name = expected_host.split('.', 1)[0].lower()
               name_matches = [
                   account.get('id', '')
                   for account in accounts
-                  if account.get('id', '').split('/')[-1].lower() == expected_name
+                  if expected_name and account.get('id', '').split('/')[-1].lower() == expected_name
               ]
               if len(name_matches) == 1:
                   match = name_matches[0]
