@@ -79,18 +79,18 @@ jobs:
             exit 1
           fi
 
-          RESOURCE_ID=$(AZURE_OPENAI_ENDPOINT="$ENDPOINT" az cognitiveservices account list --output json | python - <<'PY'
+          RESOURCE_ID=$(AZURE_OPENAI_ENDPOINT="$ENDPOINT" az cognitiveservices account list --query "[].{id:id, endpoint:properties.endpoint}" --output json | python - <<'PY'
           import json
           import os
           import sys
           
-          endpoint = os.environ['AZURE_OPENAI_ENDPOINT'].rstrip('/')
+          endpoint = os.environ['AZURE_OPENAI_ENDPOINT']
           accounts = json.load(sys.stdin)
           match = next(
               (
                   account.get('id', '')
                   for account in accounts
-                  if account.get('properties', {}).get('endpoint', '').rstrip('/') == endpoint
+                  if account.get('endpoint', '').rstrip('/') == endpoint
               ),
               '',
           )
