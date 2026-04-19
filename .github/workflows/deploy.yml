@@ -151,7 +151,7 @@ jobs:
 
           echo "AZURE_OPENAI_RESOURCE_ID not set; attempting auto-resolution from endpoint..."
 
-          ACCOUNTS_JSON="$(az cognitiveservices account list --query "[].{id:id, endpoint:properties.endpoint}" --output json)"
+          ACCOUNTS_JSON="$(az cognitiveservices account list --query "[].{id:id, endpoint:properties.endpoint, kind:kind, name:name}" --output json)"
           RESOURCE_ID=$(ACCOUNTS_JSON="$ACCOUNTS_JSON" python - "$ENDPOINT" <<'PY'
           import json
           import os
@@ -183,6 +183,10 @@ jobs:
               host = (parsed.hostname or "").strip().lower()
               return f"https://{host}" if host else ""
 
+          def normalize_kind(value: str) -> str:
+              # Collapse whitespace to support format variants from Azure CLI output.
+              return " ".join((value or "").split()).lower()
+
           expected_endpoint = normalize_endpoint(endpoint)
           if not expected_endpoint:
               print("::error::Invalid AZURE_OPENAI_ENDPOINT value.", file=sys.stderr)
@@ -210,6 +214,31 @@ jobs:
           )
 
           if not match:
+              # Known Azure CLI kind values for Azure OpenAI accounts (validated 2026-04).
+              openai_kind_values = {'openai', 'azureopenai', 'azure openai'}
+              openai_accounts = [
+                  account
+                  for account in accounts
+                  if account.get('id') and normalize_kind(str(account.get('kind') or '')) in openai_kind_values
+              ]
+              if len(openai_accounts) == 1:
+                  selected = openai_accounts[0]
+                  match = selected.get('id', '')
+                  print(
+                      "Resolved via unique OpenAI-kind account fallback "
+                      "(useful for Azure AI Foundry project endpoints): "
+                      f"id={match}, name={selected.get('name', '(unknown)')}, "
+                      f"endpoint={selected.get('endpoint', '(no endpoint)')}",
+                      file=sys.stderr,
+                  )
+              elif len(openai_accounts) > 1:
+                  print(
+                      f"::warning::Found {len(openai_accounts)} OpenAI-kind accounts but no direct endpoint match. "
+                      "Set AZURE_OPENAI_RESOURCE_ID explicitly to choose the target account.",
+                      file=sys.stderr,
+                  )
+
+          if not match:
               expected_name = expected_host.split('.', 1)[0].lower()
               name_matches = [
                   account.get('id', '')
@@ -226,15 +255,16 @@ jobs:
                       file=sys.stderr,
                   )
                   raise SystemExit(1)
-              else:
-                  discovered = [a.get('endpoint', '(no endpoint)') for a in accounts]
-                  print(
-                      f"::error::No Cognitive Services account matched endpoint host '{expected_host}'. "
-                      f"Accounts visible in this subscription ({len(accounts)}): {discovered}. "
-                      "If the Azure OpenAI resource is in a different subscription, "
-                      "set AZURE_OPENAI_RESOURCE_ID explicitly to skip auto-resolution.",
-                      file=sys.stderr,
-                  )
+                  else:
+                      discovered = [a.get('endpoint', '(no endpoint)') for a in accounts]
+                      print(
+                          f"::error::No Cognitive Services account matched endpoint host '{expected_host}'. "
+                          f"Accounts visible in this subscription ({len(accounts)}): {discovered}. "
+                          "Azure AI Foundry project endpoints may not directly match the parent account endpoint. "
+                          "If the Azure OpenAI resource is in a different subscription, "
+                          "set AZURE_OPENAI_RESOURCE_ID explicitly to skip auto-resolution.",
+                          file=sys.stderr,
+                      )
                   raise SystemExit(1)
           else:
               print(f"Resolved via endpoint match: {match}", file=sys.stderr)
