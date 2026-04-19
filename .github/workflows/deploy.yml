@@ -61,6 +61,69 @@ jobs:
           docker build -t "${{ steps.base.outputs.acrLoginServer }}/demo-realtime-gpt-api:${{ env.IMAGE_TAG }}" ./services/api
           docker push "${{ steps.base.outputs.acrLoginServer }}/demo-realtime-gpt-api:${{ env.IMAGE_TAG }}"
 
+      - name: Resolve Azure OpenAI Resource ID
+        env:
+          AZURE_OPENAI_RESOURCE_ID_SECRET: ${{ secrets.AZURE_OPENAI_RESOURCE_ID }}
+          AZURE_OPENAI_ENDPOINT_SECRET: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+        run: |
+          set -euo pipefail
+
+          trim() {
+            # Trim leading/trailing whitespace from a string.
+            local value="$1"
+            value="${value#"${value%%[![:space:]]*}"}"
+            value="${value%"${value##*[![:space:]]}"}"
+            printf '%s' "$value"
+          }
+
+          RESOURCE_ID_SECRET="$(trim "$AZURE_OPENAI_RESOURCE_ID_SECRET")"
+          if [ -n "$RESOURCE_ID_SECRET" ]; then
+            echo "AZURE_OPENAI_RESOURCE_ID=$RESOURCE_ID_SECRET" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          ENDPOINT="$(trim "$AZURE_OPENAI_ENDPOINT_SECRET")"
+          ENDPOINT="${ENDPOINT%/}"
+          if [ -z "$ENDPOINT" ]; then
+            echo "::error::AZURE_OPENAI_ENDPOINT must be set."
+            exit 1
+          fi
+
+          RESOURCE_ID=$(AZURE_OPENAI_ENDPOINT="$ENDPOINT" az cognitiveservices account list --query "[].{id:id, endpoint:properties.endpoint}" --output json | python - <<'PY'
+          import json
+          import os
+          import sys
+          
+          endpoint = os.environ['AZURE_OPENAI_ENDPOINT']
+          try:
+              accounts = json.load(sys.stdin)
+          except json.JSONDecodeError as exc:
+              print(f"::error::Failed to parse Azure CLI output: {exc}", file=sys.stderr)
+              raise SystemExit(1)
+
+          if not isinstance(accounts, list):
+              print("::error::Unexpected Azure CLI output shape (expected account list).", file=sys.stderr)
+              raise SystemExit(1)
+
+          match = next(
+              (
+                  account.get('id', '')
+                  for account in accounts
+                  if account.get('endpoint', '').rstrip('/') == endpoint
+              ),
+              '',
+          )
+          print(match)
+          PY
+          )
+
+          if [ -z "$RESOURCE_ID" ]; then
+            echo "::error::Could not resolve Azure OpenAI resource ID from AZURE_OPENAI_ENDPOINT."
+            exit 1
+          fi
+
+          echo "AZURE_OPENAI_RESOURCE_ID=$RESOURCE_ID" >> "$GITHUB_ENV"
+
       - name: Deploy Container Apps
         uses: azure/arm-deploy@v2
         id: apps
@@ -70,7 +133,7 @@ jobs:
           parameters: >-
             location=${{ env.AZURE_LOCATION }}
             baseName=demo-realtime-gpt
-            azureOpenAIResourceId=${{ secrets.AZURE_OPENAI_RESOURCE_ID }}
+            azureOpenAIResourceId=${{ env.AZURE_OPENAI_RESOURCE_ID }}
             azureOpenAIEndpoint=${{ secrets.AZURE_OPENAI_ENDPOINT }}
             imageTag=${{ env.IMAGE_TAG }}
           failOnStdErr: false
