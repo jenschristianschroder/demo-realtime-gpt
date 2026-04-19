@@ -66,13 +66,22 @@ jobs:
           AZURE_OPENAI_RESOURCE_ID_SECRET: ${{ secrets.AZURE_OPENAI_RESOURCE_ID }}
           AZURE_OPENAI_ENDPOINT_SECRET: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
         run: |
-          RESOURCE_ID_SECRET=$(echo "$AZURE_OPENAI_RESOURCE_ID_SECRET" | xargs)
+          set -euo pipefail
+
+          trim() {
+            local value="$1"
+            value="${value#"${value%%[![:space:]]*}"}"
+            value="${value%"${value##*[![:space:]]}"}"
+            printf '%s' "$value"
+          }
+
+          RESOURCE_ID_SECRET="$(trim "$AZURE_OPENAI_RESOURCE_ID_SECRET")"
           if [ -n "$RESOURCE_ID_SECRET" ]; then
             echo "AZURE_OPENAI_RESOURCE_ID=$RESOURCE_ID_SECRET" >> "$GITHUB_ENV"
             exit 0
           fi
 
-          ENDPOINT=$(echo "$AZURE_OPENAI_ENDPOINT_SECRET" | xargs)
+          ENDPOINT="$(trim "$AZURE_OPENAI_ENDPOINT_SECRET")"
           ENDPOINT="${ENDPOINT%/}"
           if [ -z "$ENDPOINT" ]; then
             echo "::error::AZURE_OPENAI_ENDPOINT must be set."
