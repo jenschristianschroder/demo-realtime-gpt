@@ -89,12 +89,11 @@ jobs:
             exit 1
           fi
 
-          RESOURCE_ID=$(AZURE_OPENAI_ENDPOINT="$ENDPOINT" az cognitiveservices account list --query "[].{id:id, endpoint:properties.endpoint}" --output json | python - <<'PY'
+          RESOURCE_ID=$(az cognitiveservices account list --query "[].{id:id, endpoint:properties.endpoint}" --output json | python - "$ENDPOINT" <<'PY'
           import json
-          import os
           import sys
           
-          endpoint = os.environ['AZURE_OPENAI_ENDPOINT']
+          endpoint = sys.argv[1]
           try:
               accounts = json.load(sys.stdin)
           except json.JSONDecodeError as exc:
