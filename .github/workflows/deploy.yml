@@ -255,16 +255,16 @@ jobs:
                       file=sys.stderr,
                   )
                   raise SystemExit(1)
-                  else:
-                      discovered = [a.get('endpoint', '(no endpoint)') for a in accounts]
-                      print(
-                          f"::error::No Cognitive Services account matched endpoint host '{expected_host}'. "
-                          f"Accounts visible in this subscription ({len(accounts)}): {discovered}. "
-                          "Azure AI Foundry project endpoints may not directly match the parent account endpoint. "
-                          "If the Azure OpenAI resource is in a different subscription, "
-                          "set AZURE_OPENAI_RESOURCE_ID explicitly to skip auto-resolution.",
-                          file=sys.stderr,
-                      )
+              else:
+                  discovered = [a.get('endpoint', '(no endpoint)') for a in accounts]
+                  print(
+                      f"::error::No Cognitive Services account matched endpoint host '{expected_host}'. "
+                      f"Accounts visible in this subscription ({len(accounts)}): {discovered}. "
+                      "Azure AI Foundry project endpoints may not directly match the parent account endpoint. "
+                      "If the Azure OpenAI resource is in a different subscription, "
+                      "set AZURE_OPENAI_RESOURCE_ID explicitly to skip auto-resolution.",
+                      file=sys.stderr,
+                  )
                   raise SystemExit(1)
           else:
               print(f"Resolved via endpoint match: {match}", file=sys.stderr)
