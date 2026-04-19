@@ -131,6 +131,7 @@ is not set and auto-resolution fails. Common causes:
 | Azure OpenAI resource is in a different subscription | Set `AZURE_OPENAI_RESOURCE_ID` explicitly |
 | Service principal lacks subscription-level Reader access | Grant Reader on the subscription, or set `AZURE_OPENAI_RESOURCE_ID` |
 | `AZURE_OPENAI_ENDPOINT` value is wrong or misspelled | Correct the endpoint secret |
+| Azure AI Foundry project endpoint does not match parent account endpoint | Set `AZURE_OPENAI_RESOURCE_ID` explicitly (recommended), or ensure only one OpenAI account exists in the subscription for auto-fallback |
 | Multiple accounts with the same name | Set `AZURE_OPENAI_RESOURCE_ID` explicitly |
 
 **Quickest fix:** set `AZURE_OPENAI_RESOURCE_ID` in your GitHub repository secrets. You can find

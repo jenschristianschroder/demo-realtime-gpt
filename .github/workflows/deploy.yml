@@ -151,7 +151,7 @@ jobs:
 
           echo "AZURE_OPENAI_RESOURCE_ID not set; attempting auto-resolution from endpoint..."
 
-          ACCOUNTS_JSON="$(az cognitiveservices account list --query "[].{id:id, endpoint:properties.endpoint}" --output json)"
+          ACCOUNTS_JSON="$(az cognitiveservices account list --query "[].{id:id, endpoint:properties.endpoint, kind:kind, name:name}" --output json)"
           RESOURCE_ID=$(ACCOUNTS_JSON="$ACCOUNTS_JSON" python - "$ENDPOINT" <<'PY'
           import json
           import os
@@ -210,6 +210,21 @@ jobs:
           )
 
           if not match:
+              openai_kind_matches = [
+                  account.get('id', '')
+                  for account in accounts
+                  if account.get('id') and 'openai' in str(account.get('kind', '')).lower()
+              ]
+              if len(openai_kind_matches) == 1:
+                  match = openai_kind_matches[0]
+                  print(
+                      "Resolved via unique OpenAI-kind account fallback "
+                      "(useful for Azure AI Foundry project endpoints): "
+                      f"{match}",
+                      file=sys.stderr,
+                  )
+
+          if not match:
               expected_name = expected_host.split('.', 1)[0].lower()
               name_matches = [
                   account.get('id', '')
@@ -226,15 +241,16 @@ jobs:
                       file=sys.stderr,
                   )
                   raise SystemExit(1)
-              else:
-                  discovered = [a.get('endpoint', '(no endpoint)') for a in accounts]
-                  print(
-                      f"::error::No Cognitive Services account matched endpoint host '{expected_host}'. "
-                      f"Accounts visible in this subscription ({len(accounts)}): {discovered}. "
-                      "If the Azure OpenAI resource is in a different subscription, "
-                      "set AZURE_OPENAI_RESOURCE_ID explicitly to skip auto-resolution.",
-                      file=sys.stderr,
-                  )
+                  else:
+                      discovered = [a.get('endpoint', '(no endpoint)') for a in accounts]
+                      print(
+                          f"::error::No Cognitive Services account matched endpoint host '{expected_host}'. "
+                          f"Accounts visible in this subscription ({len(accounts)}): {discovered}. "
+                          "Azure AI Foundry project endpoints may not directly match the parent account endpoint. "
+                          "If the Azure OpenAI resource is in a different subscription, "
+                          "set AZURE_OPENAI_RESOURCE_ID explicitly to skip auto-resolution.",
+                          file=sys.stderr,
+                      )
                   raise SystemExit(1)
           else:
               print(f"Resolved via endpoint match: {match}", file=sys.stderr)
