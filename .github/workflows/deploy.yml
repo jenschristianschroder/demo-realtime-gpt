@@ -210,10 +210,11 @@ jobs:
           )
 
           if not match:
+              openai_kind_values = {'openai', 'azureopenai', 'azure openai'}
               openai_accounts = [
                   account
                   for account in accounts
-                  if account.get('id') and account.get('kind', '').strip().lower() == 'openai'
+                  if account.get('id') and account.get('kind', '').strip().lower() in openai_kind_values
               ]
               if len(openai_accounts) == 1:
                   selected = openai_accounts[0]
@@ -223,6 +224,11 @@ jobs:
                       "(useful for Azure AI Foundry project endpoints): "
                       f"id={match}, name={selected.get('name', '(unknown)')}, "
                       f"endpoint={selected.get('endpoint', '(no endpoint)')}",
+                      file=sys.stderr,
+                  )
+              elif len(openai_accounts) > 1:
+                  print(
+                      f"Found {len(openai_accounts)} OpenAI-kind accounts but no direct endpoint match.",
                       file=sys.stderr,
                   )
 
