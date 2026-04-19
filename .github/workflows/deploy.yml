@@ -214,7 +214,7 @@ jobs:
           )
 
           if not match:
-              # Azure CLI currently reports OpenAI accounts with one of these kind values.
+              # Known Azure CLI kind values for Azure OpenAI accounts (validated 2026-04).
               openai_kind_values = {'openai', 'azureopenai', 'azure openai'}
               openai_accounts = [
                   account
@@ -233,7 +233,7 @@ jobs:
                   )
               elif len(openai_accounts) > 1:
                   print(
-                      f"Found {len(openai_accounts)} OpenAI-kind accounts but no direct endpoint match. "
+                      f"::warning::Found {len(openai_accounts)} OpenAI-kind accounts but no direct endpoint match. "
                       "Set AZURE_OPENAI_RESOURCE_ID explicitly to choose the target account.",
                       file=sys.stderr,
                   )
