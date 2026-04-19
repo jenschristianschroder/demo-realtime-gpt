@@ -213,14 +213,16 @@ jobs:
               openai_accounts = [
                   account
                   for account in accounts
-                  if account.get('id') and 'openai' in account.get('kind', '').lower()
+                  if account.get('id') and account.get('kind', '').strip().lower() == 'openai'
               ]
               if len(openai_accounts) == 1:
-                  match = openai_accounts[0].get('id', '')
+                  selected = openai_accounts[0]
+                  match = selected.get('id', '')
                   print(
                       "Resolved via unique OpenAI-kind account fallback "
                       "(useful for Azure AI Foundry project endpoints): "
-                      f"{match}",
+                      f"id={match}, name={selected.get('name', '(unknown)')}, "
+                      f"endpoint={selected.get('endpoint', '(no endpoint)')}",
                       file=sys.stderr,
                   )
 
