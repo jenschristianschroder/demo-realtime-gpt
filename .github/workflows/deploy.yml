@@ -98,7 +98,7 @@ jobs:
           endpoint = sys.argv[1]
           accounts_json = os.environ.get("ACCOUNTS_JSON")
           if not accounts_json:
-              print("::error::Azure CLI did not return account data.", file=sys.stderr)
+              print("::error::Azure CLI did not return account data. Verify Azure login and subscription access.", file=sys.stderr)
               raise SystemExit(1)
           try:
               accounts = json.loads(accounts_json)
