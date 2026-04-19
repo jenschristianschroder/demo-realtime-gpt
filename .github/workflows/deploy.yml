@@ -89,13 +89,15 @@ jobs:
             exit 1
           fi
 
-          RESOURCE_ID=$(az cognitiveservices account list --query "[].{id:id, endpoint:properties.endpoint}" --output json | python - "$ENDPOINT" <<'PY'
+          ACCOUNTS_JSON="$(az cognitiveservices account list --query "[].{id:id, endpoint:properties.endpoint}" --output json)"
+          RESOURCE_ID=$(ACCOUNTS_JSON="$ACCOUNTS_JSON" python - "$ENDPOINT" <<'PY'
           import json
+          import os
           import sys
           
           endpoint = sys.argv[1]
           try:
-              accounts = json.load(sys.stdin)
+              accounts = json.loads(os.environ.get("ACCOUNTS_JSON", ""))
           except json.JSONDecodeError as exc:
               print(f"::error::Failed to parse Azure CLI output: {exc}", file=sys.stderr)
               raise SystemExit(1)
