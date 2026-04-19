@@ -61,6 +61,33 @@ jobs:
           docker build -t "${{ steps.base.outputs.acrLoginServer }}/demo-realtime-gpt-api:${{ env.IMAGE_TAG }}" ./services/api
           docker push "${{ steps.base.outputs.acrLoginServer }}/demo-realtime-gpt-api:${{ env.IMAGE_TAG }}"
 
+      - name: Resolve Azure OpenAI Resource ID
+        env:
+          AZURE_OPENAI_RESOURCE_ID_SECRET: ${{ secrets.AZURE_OPENAI_RESOURCE_ID }}
+          AZURE_OPENAI_ENDPOINT_SECRET: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+        run: |
+          if [ -n "$AZURE_OPENAI_RESOURCE_ID_SECRET" ]; then
+            echo "AZURE_OPENAI_RESOURCE_ID=$AZURE_OPENAI_RESOURCE_ID_SECRET" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          ENDPOINT="${AZURE_OPENAI_ENDPOINT_SECRET%/}"
+          if [ -z "$ENDPOINT" ]; then
+            echo "::error::AZURE_OPENAI_ENDPOINT must be set."
+            exit 1
+          fi
+
+          RESOURCE_ID=$(az cognitiveservices account list \
+            --query "[?properties.endpoint=='$ENDPOINT' || properties.endpoint=='$ENDPOINT/'].id | [0]" \
+            --output tsv)
+
+          if [ -z "$RESOURCE_ID" ]; then
+            echo "::error::Could not resolve Azure OpenAI resource ID from AZURE_OPENAI_ENDPOINT."
+            exit 1
+          fi
+
+          echo "AZURE_OPENAI_RESOURCE_ID=$RESOURCE_ID" >> "$GITHUB_ENV"
+
       - name: Deploy Container Apps
         uses: azure/arm-deploy@v2
         id: apps
@@ -70,7 +97,7 @@ jobs:
           parameters: >-
             location=${{ env.AZURE_LOCATION }}
             baseName=demo-realtime-gpt
-            azureOpenAIResourceId=${{ secrets.AZURE_OPENAI_RESOURCE_ID }}
+            azureOpenAIResourceId=${{ env.AZURE_OPENAI_RESOURCE_ID }}
             azureOpenAIEndpoint=${{ secrets.AZURE_OPENAI_ENDPOINT }}
             imageTag=${{ env.IMAGE_TAG }}
           failOnStdErr: false
