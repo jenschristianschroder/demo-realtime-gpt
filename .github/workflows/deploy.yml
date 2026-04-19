@@ -94,6 +94,7 @@ jobs:
           import json
           import os
           import sys
+          from urllib.parse import urlparse
           
           endpoint = sys.argv[1]
           accounts_json = os.environ.get("ACCOUNTS_JSON")
@@ -110,14 +111,40 @@ jobs:
               print("::error::Unexpected Azure CLI output shape (expected account list).", file=sys.stderr)
               raise SystemExit(1)
 
+          def normalize_endpoint(value: str) -> str:
+              value = (value or "").strip()
+              if not value:
+                  return ""
+              if "://" not in value:
+                  value = f"https://{value}"
+              parsed = urlparse(value)
+              host = (parsed.netloc or parsed.path).strip().rstrip("/")
+              host = host.split("@")[-1].split(":")[0].lower()
+              return f"https://{host}" if host else ""
+
+          expected_endpoint = normalize_endpoint(endpoint)
+          if not expected_endpoint:
+              print("::error::Invalid AZURE_OPENAI_ENDPOINT value.", file=sys.stderr)
+              raise SystemExit(1)
+
           match = next(
               (
                   account.get('id', '')
                   for account in accounts
-                  if account.get('endpoint', '').rstrip('/') == endpoint
+                  if normalize_endpoint(account.get('endpoint', '')) == expected_endpoint
               ),
               '',
           )
+
+          if not match:
+              expected_name = expected_endpoint[len('https://'):].split('.', 1)[0]
+              name_matches = [
+                  account.get('id', '')
+                  for account in accounts
+                  if account.get('id', '').split('/')[-1].lower() == expected_name
+              ]
+              if len(name_matches) == 1:
+                  match = name_matches[0]
           print(match)
           PY
           )
