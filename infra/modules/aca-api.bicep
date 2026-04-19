@@ -19,6 +19,10 @@ param imageTag string
 @description('Azure OpenAI endpoint')
 param azureOpenAIEndpoint string
 
+@description('Azure OpenAI API key (optional)')
+@secure()
+param azureOpenAIApiKey string = ''
+
 @description('Azure OpenAI deployment name')
 param azureOpenAIDeployment string
 
@@ -42,6 +46,12 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
         targetPort: 3001
         transport: 'http'
       }
+      secrets: [
+        if (!empty(azureOpenAIApiKey)) {
+          name: 'azure-openai-api-key'
+          value: azureOpenAIApiKey
+        }
+      ]
       registries: [
         {
           server: acrLoginServer
@@ -62,6 +72,7 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'PORT', value: '3001' }
             { name: 'AZURE_OPENAI_ENDPOINT', value: azureOpenAIEndpoint }
             { name: 'AZURE_OPENAI_DEPLOYMENT', value: azureOpenAIDeployment }
+            if (!empty(azureOpenAIApiKey)) { name: 'AZURE_OPENAI_API_KEY', secretRef: 'azure-openai-api-key' }
           ]
         }
       ]
@@ -75,6 +86,7 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
 
 // Deploy role assignment to the resource group where the Azure OpenAI resource lives
 module openaiRoleAssignment 'openai-role-assignment.bicep' = {
+  if (!empty(azureOpenAIResourceId))
   name: 'openai-role-assignment'
   scope: resourceGroup(split(azureOpenAIResourceId, '/')[4])
   params: {

@@ -40,6 +40,7 @@ jobs:
         env:
           AZURE_OPENAI_ENDPOINT_SECRET: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
           AZURE_OPENAI_RESOURCE_ID_SECRET: ${{ secrets.AZURE_OPENAI_RESOURCE_ID }}
+          AZURE_OPENAI_API_KEY_SECRET: ${{ secrets.AZURE_OPENAI_API_KEY }}
         run: |
           set -euo pipefail
           errors=0
@@ -54,8 +55,10 @@ jobs:
             errors=$((errors + 1))
           fi
 
-          if [ -z "$AZURE_OPENAI_RESOURCE_ID_SECRET" ]; then
-            echo "::warning::AZURE_OPENAI_RESOURCE_ID is not set. The workflow will attempt to auto-resolve it from AZURE_OPENAI_ENDPOINT. For reliable deployments, set AZURE_OPENAI_RESOURCE_ID to the full Azure resource ID of your Azure OpenAI resource (e.g. /subscriptions/.../resourceGroups/.../providers/Microsoft.CognitiveServices/accounts/...)."
+          if [ -z "$AZURE_OPENAI_RESOURCE_ID_SECRET" ] && [ -n "$AZURE_OPENAI_API_KEY_SECRET" ]; then
+            echo "::notice::AZURE_OPENAI_RESOURCE_ID is not set, but AZURE_OPENAI_API_KEY is provided. Deployment will use API key auth and skip managed-identity role assignment."
+          elif [ -z "$AZURE_OPENAI_RESOURCE_ID_SECRET" ]; then
+            echo "::warning::AZURE_OPENAI_RESOURCE_ID is not set. The workflow will attempt to auto-resolve it from AZURE_OPENAI_ENDPOINT. For reliable managed-identity deployments, set AZURE_OPENAI_RESOURCE_ID to the full Azure resource ID of your Azure OpenAI resource (e.g. /subscriptions/.../resourceGroups/.../providers/Microsoft.CognitiveServices/accounts/...)."
           fi
 
           if [ "$errors" -gt 0 ]; then
@@ -102,6 +105,7 @@ jobs:
         env:
           AZURE_OPENAI_RESOURCE_ID_SECRET: ${{ secrets.AZURE_OPENAI_RESOURCE_ID }}
           AZURE_OPENAI_ENDPOINT_SECRET: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_API_KEY_SECRET: ${{ secrets.AZURE_OPENAI_API_KEY }}
         run: |
           set -euo pipefail
 
@@ -117,6 +121,13 @@ jobs:
           if [ -n "$RESOURCE_ID_SECRET" ]; then
             echo "Using AZURE_OPENAI_RESOURCE_ID from secret."
             echo "AZURE_OPENAI_RESOURCE_ID=$RESOURCE_ID_SECRET" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          API_KEY_SECRET="$(trim "$AZURE_OPENAI_API_KEY_SECRET")"
+          if [ -n "$API_KEY_SECRET" ]; then
+            echo "AZURE_OPENAI_API_KEY is set; skipping AZURE_OPENAI_RESOURCE_ID auto-resolution."
+            echo "AZURE_OPENAI_RESOURCE_ID=" >> "$GITHUB_ENV"
             exit 0
           fi
 
@@ -239,6 +250,7 @@ jobs:
             baseName=demo-realtime-gpt
             azureOpenAIResourceId=${{ env.AZURE_OPENAI_RESOURCE_ID }}
             azureOpenAIEndpoint=${{ secrets.AZURE_OPENAI_ENDPOINT }}
+            azureOpenAIApiKey=${{ secrets.AZURE_OPENAI_API_KEY }}
             imageTag=${{ env.IMAGE_TAG }}
           failOnStdErr: false
 

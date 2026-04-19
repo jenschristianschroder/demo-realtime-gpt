@@ -89,10 +89,13 @@ Open http://localhost:5173
 | `AZURE_SUBSCRIPTION_ID` | ✅ | Azure subscription ID |
 | `AZURE_RESOURCE_GROUP` | ✅ | Target resource group name |
 | `AZURE_OPENAI_ENDPOINT` | ✅ | e.g. `https://myaoai.openai.azure.com/` |
-| `AZURE_OPENAI_RESOURCE_ID` | ⚠️ Recommended | Full Azure resource ID for the Managed Identity role assignment (see note below) |
+| `AZURE_OPENAI_RESOURCE_ID` | ⚠️ Recommended (MI auth) | Full Azure resource ID for the Managed Identity role assignment (see note below) |
+| `AZURE_OPENAI_API_KEY` | ⚠️ Optional (API key auth) | If set, deployment skips OpenAI resource ID auto-discovery and uses API key auth in the API container |
 
-> **`AZURE_OPENAI_RESOURCE_ID`** — Set this to the full resource ID of your Azure OpenAI resource:
+> **`AZURE_OPENAI_RESOURCE_ID`** — Set this to the full resource ID of your Azure OpenAI resource when using **managed identity** auth:
 > `/subscriptions/<sub-id>/resourceGroups/<rg>/providers/Microsoft.CognitiveServices/accounts/<name>`
+>
+> If `AZURE_OPENAI_API_KEY` is set, this value is optional and the workflow skips OpenAI resource ID auto-resolution/role-assignment.
 >
 > If omitted, the workflow attempts to auto-resolve it by listing Cognitive Services accounts in the
 > subscription and matching by endpoint URL. This fallback requires the service principal to have at
