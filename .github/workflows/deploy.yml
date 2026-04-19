@@ -79,7 +79,24 @@ jobs:
             exit 1
           fi
 
-          RESOURCE_ID=$(AZURE_OPENAI_ENDPOINT="$ENDPOINT" az cognitiveservices account list --output json | python -c "import json, os, sys; endpoint=os.environ['AZURE_OPENAI_ENDPOINT'].rstrip('/'); accounts=json.load(sys.stdin); print(next((a.get('id','') for a in accounts if (a.get('properties',{}).get('endpoint','').rstrip('/') == endpoint)), ''))")
+          RESOURCE_ID=$(AZURE_OPENAI_ENDPOINT="$ENDPOINT" az cognitiveservices account list --output json | python - <<'PY'
+          import json
+          import os
+          import sys
+          
+          endpoint = os.environ['AZURE_OPENAI_ENDPOINT'].rstrip('/')
+          accounts = json.load(sys.stdin)
+          match = next(
+              (
+                  account.get('id', '')
+                  for account in accounts
+                  if account.get('properties', {}).get('endpoint', '').rstrip('/') == endpoint
+              ),
+              '',
+          )
+          print(match)
+          PY
+          )
 
           if [ -z "$RESOURCE_ID" ]; then
             echo "::error::Could not resolve Azure OpenAI resource ID from AZURE_OPENAI_ENDPOINT."
