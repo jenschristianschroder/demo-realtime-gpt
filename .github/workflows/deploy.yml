@@ -69,6 +69,7 @@ jobs:
           set -euo pipefail
 
           trim() {
+            # Trim leading/trailing whitespace from a string.
             local value="$1"
             value="${value#"${value%%[![:space:]]*}"}"
             value="${value%"${value##*[![:space:]]}"}"
@@ -94,7 +95,16 @@ jobs:
           import sys
           
           endpoint = os.environ['AZURE_OPENAI_ENDPOINT']
-          accounts = json.load(sys.stdin)
+          try:
+              accounts = json.load(sys.stdin)
+          except json.JSONDecodeError as exc:
+              print(f"::error::Failed to parse Azure CLI output: {exc}", file=sys.stderr)
+              raise SystemExit(1)
+
+          if not isinstance(accounts, list):
+              print("::error::Unexpected Azure CLI output shape (expected account list).", file=sys.stderr)
+              raise SystemExit(1)
+
           match = next(
               (
                   account.get('id', '')
