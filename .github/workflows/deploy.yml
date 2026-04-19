@@ -96,8 +96,12 @@ jobs:
           import sys
           
           endpoint = sys.argv[1]
+          accounts_json = os.environ.get("ACCOUNTS_JSON")
+          if not accounts_json:
+              print("::error::Azure CLI did not return account data.", file=sys.stderr)
+              raise SystemExit(1)
           try:
-              accounts = json.loads(os.environ.get("ACCOUNTS_JSON", ""))
+              accounts = json.loads(accounts_json)
           except json.JSONDecodeError as exc:
               print(f"::error::Failed to parse Azure CLI output: {exc}", file=sys.stderr)
               raise SystemExit(1)
