@@ -183,6 +183,10 @@ jobs:
               host = (parsed.hostname or "").strip().lower()
               return f"https://{host}" if host else ""
 
+          def normalize_kind(value: str) -> str:
+              # Collapse whitespace to support format variants from Azure CLI output.
+              return " ".join((value or "").split()).lower()
+
           expected_endpoint = normalize_endpoint(endpoint)
           if not expected_endpoint:
               print("::error::Invalid AZURE_OPENAI_ENDPOINT value.", file=sys.stderr)
@@ -215,7 +219,7 @@ jobs:
               openai_accounts = [
                   account
                   for account in accounts
-                  if account.get('id') and account.get('kind', '').strip().lower() in openai_kind_values
+                  if account.get('id') and normalize_kind(str(account.get('kind') or '')) in openai_kind_values
               ]
               if len(openai_accounts) == 1:
                   selected = openai_accounts[0]
