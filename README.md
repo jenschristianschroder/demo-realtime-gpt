@@ -82,14 +82,22 @@ Open http://localhost:5173
 
 ### GitHub Secrets
 
-| Secret | Description |
-|--------|-------------|
-| `AZURE_CLIENT_ID` | App registration client ID (OIDC) |
-| `AZURE_TENANT_ID` | Azure AD tenant ID |
-| `AZURE_SUBSCRIPTION_ID` | Azure subscription ID |
-| `AZURE_RESOURCE_GROUP` | Target resource group |
-| `AZURE_OPENAI_ENDPOINT` | e.g. `https://myaoai.openai.azure.com/` |
-| `AZURE_OPENAI_RESOURCE_ID` | Full resource ID for role assignment |
+| Secret | Required | Description |
+|--------|----------|-------------|
+| `AZURE_CLIENT_ID` | ✅ | App registration client ID (OIDC) |
+| `AZURE_TENANT_ID` | ✅ | Azure AD tenant ID |
+| `AZURE_SUBSCRIPTION_ID` | ✅ | Azure subscription ID |
+| `AZURE_RESOURCE_GROUP` | ✅ | Target resource group name |
+| `AZURE_OPENAI_ENDPOINT` | ✅ | e.g. `https://myaoai.openai.azure.com/` |
+| `AZURE_OPENAI_RESOURCE_ID` | ⚠️ Recommended | Full Azure resource ID for the Managed Identity role assignment (see note below) |
+
+> **`AZURE_OPENAI_RESOURCE_ID`** — Set this to the full resource ID of your Azure OpenAI resource:
+> `/subscriptions/<sub-id>/resourceGroups/<rg>/providers/Microsoft.CognitiveServices/accounts/<name>`
+>
+> If omitted, the workflow attempts to auto-resolve it by listing Cognitive Services accounts in the
+> subscription and matching by endpoint URL. This fallback requires the service principal to have at
+> least **Reader** access at the subscription scope, and it will fail if the Azure OpenAI resource
+> lives in a different subscription. Setting this secret explicitly is strongly recommended.
 
 ### GitHub Variables
 
@@ -100,9 +108,44 @@ Open http://localhost:5173
 ### Deploy
 
 Push to `main` or trigger the workflow manually. The GitHub Action will:
-1. Deploy Bicep infrastructure (ACR, ACA, Identity)
-2. Build and push Docker images
-3. Update Container Apps
+1. Validate required secrets
+2. Deploy Bicep infrastructure (ACR, ACA, Managed Identity)
+3. Build and push Docker images
+4. Resolve the Azure OpenAI resource ID (from secret or auto-discovery)
+5. Update Container Apps with the new image
+6. Run a health-check smoke test
+
+### Troubleshooting
+
+#### "Could not resolve Azure OpenAI resource ID from AZURE_OPENAI_ENDPOINT"
+
+This error occurs in the **Resolve Azure OpenAI Resource ID** step when `AZURE_OPENAI_RESOURCE_ID`
+is not set and auto-resolution fails. Common causes:
+
+| Cause | Fix |
+|-------|-----|
+| `AZURE_OPENAI_RESOURCE_ID` not set | Set the secret to the full resource ID (see above) |
+| Azure OpenAI resource is in a different subscription | Set `AZURE_OPENAI_RESOURCE_ID` explicitly |
+| Service principal lacks subscription-level Reader access | Grant Reader on the subscription, or set `AZURE_OPENAI_RESOURCE_ID` |
+| `AZURE_OPENAI_ENDPOINT` value is wrong or misspelled | Correct the endpoint secret |
+| Multiple accounts with the same name | Set `AZURE_OPENAI_RESOURCE_ID` explicitly |
+
+**Quickest fix:** set `AZURE_OPENAI_RESOURCE_ID` in your GitHub repository secrets. You can find
+the value in the Azure portal → your Azure OpenAI resource → **Properties** → **Resource ID**,
+or with:
+
+```bash
+az cognitiveservices account show \
+  --name <resource-name> \
+  --resource-group <resource-group> \
+  --query id -o tsv
+```
+
+#### Deployment stuck / container not starting
+
+Container Apps with `minReplicas: 0` scale to zero when idle. The first request after a cold start
+may take 30–60 seconds. If the smoke-test health check warns in CI, the app is usually fine — it
+just needs a moment to warm up. Visit the SPA URL in a browser to confirm.
 
 ## Project Structure
 

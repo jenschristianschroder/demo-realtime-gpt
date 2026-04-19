@@ -5,6 +5,12 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Prevent concurrent deployments to avoid race conditions on shared Azure resources.
+# A new run queues and waits; it does not cancel an in-progress deployment.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   id-token: write
   contents: read
@@ -13,6 +19,8 @@ env:
   AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
   AZURE_LOCATION: ${{ vars.AZURE_LOCATION || 'eastus2' }}
   IMAGE_TAG: ${{ github.sha }}
+  # Opt into Node.js 24 now, ahead of the June 2026 deprecation deadline for Node 20 actions.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   deploy:
@@ -27,6 +35,35 @@ jobs:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Preflight Validation
+        env:
+          AZURE_OPENAI_ENDPOINT_SECRET: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_RESOURCE_ID_SECRET: ${{ secrets.AZURE_OPENAI_RESOURCE_ID }}
+        run: |
+          set -euo pipefail
+          errors=0
+
+          if [ -z "$AZURE_RESOURCE_GROUP" ]; then
+            echo "::error::AZURE_RESOURCE_GROUP secret is not set."
+            errors=$((errors + 1))
+          fi
+
+          if [ -z "$AZURE_OPENAI_ENDPOINT_SECRET" ]; then
+            echo "::error::AZURE_OPENAI_ENDPOINT secret is not set. It is required for the API container app configuration."
+            errors=$((errors + 1))
+          fi
+
+          if [ -z "$AZURE_OPENAI_RESOURCE_ID_SECRET" ]; then
+            echo "::warning::AZURE_OPENAI_RESOURCE_ID is not set. The workflow will attempt to auto-resolve it from AZURE_OPENAI_ENDPOINT. For reliable deployments, set AZURE_OPENAI_RESOURCE_ID to the full Azure resource ID of your Azure OpenAI resource (e.g. /subscriptions/.../resourceGroups/.../providers/Microsoft.CognitiveServices/accounts/...)."
+          fi
+
+          if [ "$errors" -gt 0 ]; then
+            echo "::error::$errors required secret(s) are missing. Aborting."
+            exit 1
+          fi
+
+          echo "✅ Preflight validation passed."
 
       - name: Ensure Resource Group exists
         run: |
@@ -78,6 +115,7 @@ jobs:
 
           RESOURCE_ID_SECRET="$(trim "$AZURE_OPENAI_RESOURCE_ID_SECRET")"
           if [ -n "$RESOURCE_ID_SECRET" ]; then
+            echo "Using AZURE_OPENAI_RESOURCE_ID from secret."
             echo "AZURE_OPENAI_RESOURCE_ID=$RESOURCE_ID_SECRET" >> "$GITHUB_ENV"
             exit 0
           fi
@@ -85,9 +123,11 @@ jobs:
           ENDPOINT="$(trim "$AZURE_OPENAI_ENDPOINT_SECRET")"
           ENDPOINT="${ENDPOINT%/}"
           if [ -z "$ENDPOINT" ]; then
-            echo "::error::AZURE_OPENAI_ENDPOINT must be set."
+            echo "::error::AZURE_OPENAI_ENDPOINT must be set when AZURE_OPENAI_RESOURCE_ID is not provided."
             exit 1
           fi
+
+          echo "AZURE_OPENAI_RESOURCE_ID not set; attempting auto-resolution from endpoint..."
 
           ACCOUNTS_JSON="$(az cognitiveservices account list --query "[].{id:id, endpoint:properties.endpoint}" --output json)"
           RESOURCE_ID=$(ACCOUNTS_JSON="$ACCOUNTS_JSON" python - "$ENDPOINT" <<'PY'
@@ -95,7 +135,7 @@ jobs:
           import os
           import sys
           from urllib.parse import urlparse
-          
+
           endpoint = sys.argv[1]
           accounts_json = os.environ.get("ACCOUNTS_JSON")
           if not accounts_json:
@@ -126,6 +166,18 @@ jobs:
               print("::error::Invalid AZURE_OPENAI_ENDPOINT value.", file=sys.stderr)
               raise SystemExit(1)
 
+          expected_host = urlparse(expected_endpoint).hostname or ''
+          print(f"Searching {len(accounts)} Cognitive Services account(s) for endpoint host: {expected_host}", file=sys.stderr)
+
+          if len(accounts) == 0:
+              print(
+                  "::error::No Cognitive Services accounts found in the subscription. "
+                  "Ensure the service principal has at least 'Reader' access to the subscription, "
+                  "or set AZURE_OPENAI_RESOURCE_ID explicitly to skip auto-resolution.",
+                  file=sys.stderr,
+              )
+              raise SystemExit(1)
+
           match = next(
               (
                   account.get('id', '')
@@ -136,7 +188,6 @@ jobs:
           )
 
           if not match:
-              expected_host = urlparse(expected_endpoint).hostname or ''
               expected_name = expected_host.split('.', 1)[0].lower()
               name_matches = [
                   account.get('id', '')
@@ -145,6 +196,27 @@ jobs:
               ]
               if len(name_matches) == 1:
                   match = name_matches[0]
+                  print(f"Resolved via account name fallback: {match}", file=sys.stderr)
+              elif len(name_matches) > 1:
+                  print(
+                      f"::error::Ambiguous match: {len(name_matches)} accounts named '{expected_name}' found. "
+                      "Set AZURE_OPENAI_RESOURCE_ID explicitly to the full resource ID.",
+                      file=sys.stderr,
+                  )
+                  raise SystemExit(1)
+              else:
+                  discovered = [a.get('endpoint', '(no endpoint)') for a in accounts]
+                  print(
+                      f"::error::No Cognitive Services account matched endpoint host '{expected_host}'. "
+                      f"Accounts visible in this subscription ({len(accounts)}): {discovered}. "
+                      "If the Azure OpenAI resource is in a different subscription, "
+                      "set AZURE_OPENAI_RESOURCE_ID explicitly to skip auto-resolution.",
+                      file=sys.stderr,
+                  )
+                  raise SystemExit(1)
+          else:
+              print(f"Resolved via endpoint match: {match}", file=sys.stderr)
+
           print(match)
           PY
           )
@@ -170,6 +242,33 @@ jobs:
             imageTag=${{ env.IMAGE_TAG }}
           failOnStdErr: false
 
-      - name: Output URL
+      - name: Smoke Test — API Health Check
         run: |
+          SPA_URL="https://${{ steps.apps.outputs.spaUrl }}"
+          echo "Checking: ${SPA_URL}/health"
+          max_attempts=12
+          for i in $(seq 1 $max_attempts); do
+            status=$(curl -sf --max-time 10 "${SPA_URL}/health" -o /dev/null -w "%{http_code}" 2>/dev/null || echo "000")
+            if [ "$status" = "200" ]; then
+              echo "✅ Health check passed (attempt $i)"
+              exit 0
+            fi
+            echo "Attempt $i/$max_attempts: status=$status, retrying in 10s..."
+            sleep 10
+          done
+          echo "::warning::Health check did not return 200 after $max_attempts attempts (last status: $status). The app may still be starting up. Check the Azure portal for container app status."
+
+      - name: Deployment Summary
+        if: always()
+        run: |
+          echo "## Deployment Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Parameter | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-----------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Commit | \`${{ env.IMAGE_TAG }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Resource Group | \`${{ env.AZURE_RESOURCE_GROUP }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Location | \`${{ env.AZURE_LOCATION }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| ACR | \`${{ steps.base.outputs.acrLoginServer }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 🚀 SPA URL | https://${{ steps.apps.outputs.spaUrl }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo ""
           echo "🚀 SPA URL: https://${{ steps.apps.outputs.spaUrl }}"
