@@ -6,9 +6,6 @@ param location string = resourceGroup().location
 @description('Base name for resources')
 param baseName string = 'demo-realtime-gpt'
 
-@description('Container image tag')
-param imageTag string = 'latest'
-
 @description('Azure OpenAI endpoint')
 param azureOpenAIEndpoint string
 
@@ -52,7 +49,6 @@ module api 'modules/aca-api.bicep' = {
     environmentId: environment.outputs.environmentId
     acrLoginServer: acr.outputs.acrLoginServer
     identityId: identity.outputs.identityId
-    imageTag: imageTag
     azureOpenAIEndpoint: azureOpenAIEndpoint
     azureOpenAIDeployment: azureOpenAIDeployment
   }
@@ -67,7 +63,6 @@ module spa 'modules/aca-spa.bicep' = {
     environmentId: environment.outputs.environmentId
     acrLoginServer: acr.outputs.acrLoginServer
     identityId: identity.outputs.identityId
-    imageTag: imageTag
     apiHost: '${baseName}-api'
   }
 }

@@ -13,9 +13,6 @@ param acrLoginServer string
 @description('User-assigned managed identity resource ID')
 param identityId string
 
-@description('Container image tag')
-param imageTag string
-
 @description('Azure OpenAI endpoint')
 param azureOpenAIEndpoint string
 
@@ -50,7 +47,7 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
       containers: [
         {
           name: 'api'
-          image: '${acrLoginServer}/${baseName}-api:${imageTag}'
+          image: 'mcr.microsoft.com/k8se/quickstart:latest'
           resources: {
             cpu: json('0.5')
             memory: '1Gi'
