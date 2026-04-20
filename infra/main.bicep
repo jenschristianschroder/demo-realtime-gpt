@@ -6,9 +6,6 @@ param location string = resourceGroup().location
 @description('Base name for resources')
 param baseName string = 'demo-realtime-gpt'
 
-@description('Azure OpenAI resource ID for role assignment')
-param azureOpenAIResourceId string
-
 @description('Container image tag')
 param imageTag string = 'latest'
 
@@ -36,14 +33,13 @@ module environment 'modules/aca-environment.bicep' = {
   }
 }
 
-// User-Assigned Managed Identity + Role Assignments
+// User-Assigned Managed Identity + ACR Pull Role
 module identity 'modules/identity.bicep' = {
   name: 'identity'
   params: {
     location: location
     baseName: baseName
     acrId: acr.outputs.acrId
-    azureOpenAIResourceId: azureOpenAIResourceId
   }
 }
 
@@ -78,3 +74,4 @@ module spa 'modules/aca-spa.bicep' = {
 
 output spaUrl string = spa.outputs.fqdn
 output acrLoginServer string = acr.outputs.acrLoginServer
+output identityPrincipalId string = identity.outputs.identityPrincipalId
