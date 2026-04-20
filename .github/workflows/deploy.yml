@@ -6,7 +6,6 @@ on:
   workflow_dispatch:
 
 # Prevent concurrent deployments to avoid race conditions on shared Azure resources.
-# A new run queues and waits; it does not cancel an in-progress deployment.
 concurrency:
   group: deploy-${{ github.ref }}
   cancel-in-progress: false
@@ -19,7 +18,6 @@ env:
   AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
   AZURE_LOCATION: ${{ vars.AZURE_LOCATION || 'eastus2' }}
   IMAGE_TAG: ${{ github.sha }}
-  # Opt into Node.js 24 now, ahead of the June 2026 deprecation deadline for Node 20 actions.
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
@@ -37,46 +35,25 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Preflight Validation
-        env:
-          AZURE_OPENAI_ENDPOINT_SECRET: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
-          AZURE_OPENAI_RESOURCE_ID_SECRET: ${{ secrets.AZURE_OPENAI_RESOURCE_ID }}
-          AZURE_OPENAI_API_KEY_SECRET: ${{ secrets.AZURE_OPENAI_API_KEY }}
         run: |
           set -euo pipefail
           errors=0
-
-          trim() {
-            local value="$1"
-            value="${value#"${value%%[![:space:]]*}"}"
-            value="${value%"${value##*[![:space:]]}"}"
-            printf '%s' "$value"
-          }
-
-          OPENAI_RESOURCE_ID_SECRET="$(trim "$AZURE_OPENAI_RESOURCE_ID_SECRET")"
-          OPENAI_API_KEY_SECRET="$(trim "$AZURE_OPENAI_API_KEY_SECRET")"
-          OPENAI_ENDPOINT_SECRET="$(trim "$AZURE_OPENAI_ENDPOINT_SECRET")"
-
           if [ -z "$AZURE_RESOURCE_GROUP" ]; then
             echo "::error::AZURE_RESOURCE_GROUP secret is not set."
             errors=$((errors + 1))
           fi
-
-          if [ -z "$OPENAI_ENDPOINT_SECRET" ]; then
-            echo "::error::AZURE_OPENAI_ENDPOINT secret is not set. It is required for the API container app configuration."
+          if [ -z "${{ secrets.AZURE_OPENAI_ENDPOINT }}" ]; then
+            echo "::error::AZURE_OPENAI_ENDPOINT secret is not set."
             errors=$((errors + 1))
           fi
-
-          if [ -z "$OPENAI_RESOURCE_ID_SECRET" ] && [ -n "$OPENAI_API_KEY_SECRET" ]; then
-            echo "::notice::AZURE_OPENAI_RESOURCE_ID is not set, but AZURE_OPENAI_API_KEY is provided. Deployment will use API key auth and skip managed-identity role assignment."
-          elif [ -z "$OPENAI_RESOURCE_ID_SECRET" ]; then
-            echo "::warning::AZURE_OPENAI_RESOURCE_ID is not set. The workflow will attempt to auto-resolve it from AZURE_OPENAI_ENDPOINT. For reliable managed-identity deployments, set AZURE_OPENAI_RESOURCE_ID to the full Azure resource ID of your Azure OpenAI resource (e.g. /subscriptions/.../resourceGroups/.../providers/Microsoft.CognitiveServices/accounts/...)."
+          if [ -z "${{ secrets.AZURE_OPENAI_RESOURCE_ID }}" ]; then
+            echo "::error::AZURE_OPENAI_RESOURCE_ID secret is not set. Set it to the full resource ID of your Azure OpenAI / AI Services resource."
+            errors=$((errors + 1))
           fi
-
           if [ "$errors" -gt 0 ]; then
             echo "::error::$errors required secret(s) are missing. Aborting."
             exit 1
           fi
-
           echo "✅ Preflight validation passed."
 
       - name: Ensure Resource Group exists
@@ -86,227 +63,52 @@ jobs:
             --location "${{ env.AZURE_LOCATION }}" \
             --output none
 
-      - name: Deploy Base Infrastructure
+      - name: Deploy Infrastructure
         uses: azure/arm-deploy@v2
-        id: base
-        with:
-          resourceGroupName: ${{ env.AZURE_RESOURCE_GROUP }}
-          template: infra/base.bicep
-          parameters: >-
-            location=${{ env.AZURE_LOCATION }}
-            baseName=demo-realtime-gpt
-          failOnStdErr: false
-
-      - name: ACR Login
-        run: |
-          ACR_NAME=$(echo "${{ steps.base.outputs.acrLoginServer }}" | cut -d'.' -f1)
-          az acr login --name "$ACR_NAME"
-
-      - name: Build & Push SPA Image
-        run: |
-          docker build -t "${{ steps.base.outputs.acrLoginServer }}/demo-realtime-gpt-spa:${{ env.IMAGE_TAG }}" .
-          docker push "${{ steps.base.outputs.acrLoginServer }}/demo-realtime-gpt-spa:${{ env.IMAGE_TAG }}"
-
-      - name: Build & Push API Image
-        run: |
-          docker build -t "${{ steps.base.outputs.acrLoginServer }}/demo-realtime-gpt-api:${{ env.IMAGE_TAG }}" ./services/api
-          docker push "${{ steps.base.outputs.acrLoginServer }}/demo-realtime-gpt-api:${{ env.IMAGE_TAG }}"
-
-      - name: Resolve Azure OpenAI Resource ID
-        env:
-          AZURE_OPENAI_RESOURCE_ID_SECRET: ${{ secrets.AZURE_OPENAI_RESOURCE_ID }}
-          AZURE_OPENAI_ENDPOINT_SECRET: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
-          AZURE_OPENAI_API_KEY_SECRET: ${{ secrets.AZURE_OPENAI_API_KEY }}
-        run: |
-          set -euo pipefail
-
-          trim() {
-            # Trim leading/trailing whitespace from a string.
-            local value="$1"
-            value="${value#"${value%%[![:space:]]*}"}"
-            value="${value%"${value##*[![:space:]]}"}"
-            printf '%s' "$value"
-          }
-
-          RESOURCE_ID_SECRET="$(trim "$AZURE_OPENAI_RESOURCE_ID_SECRET")"
-          if [ -n "$RESOURCE_ID_SECRET" ]; then
-            echo "Using AZURE_OPENAI_RESOURCE_ID from secret."
-            echo "AZURE_OPENAI_RESOURCE_ID=$RESOURCE_ID_SECRET" >> "$GITHUB_ENV"
-            exit 0
-          fi
-
-          API_KEY_SECRET="$(trim "$AZURE_OPENAI_API_KEY_SECRET")"
-          if [ -n "$API_KEY_SECRET" ]; then
-            echo "AZURE_OPENAI_API_KEY is set; skipping AZURE_OPENAI_RESOURCE_ID auto-resolution."
-            echo "AZURE_OPENAI_RESOURCE_ID=" >> "$GITHUB_ENV"
-            exit 0
-          fi
-
-          ENDPOINT="$(trim "$AZURE_OPENAI_ENDPOINT_SECRET")"
-          ENDPOINT="${ENDPOINT%/}"
-          if [ -z "$ENDPOINT" ]; then
-            echo "::error::AZURE_OPENAI_ENDPOINT must be set when AZURE_OPENAI_RESOURCE_ID is not provided."
-            exit 1
-          fi
-
-          echo "AZURE_OPENAI_RESOURCE_ID not set; attempting auto-resolution from endpoint..."
-
-          ACCOUNTS_JSON="$(az cognitiveservices account list --query "[].{id:id, endpoint:properties.endpoint, kind:kind, name:name}" --output json)"
-          RESOURCE_ID=$(ACCOUNTS_JSON="$ACCOUNTS_JSON" python - "$ENDPOINT" <<'PY'
-          import json
-          import os
-          import sys
-          from urllib.parse import urlparse
-
-          endpoint = sys.argv[1]
-          accounts_json = os.environ.get("ACCOUNTS_JSON")
-          if not accounts_json:
-              print("::error::Azure CLI did not return account data. Verify Azure login and subscription access.", file=sys.stderr)
-              raise SystemExit(1)
-          try:
-              accounts = json.loads(accounts_json)
-          except json.JSONDecodeError as exc:
-              print(f"::error::Failed to parse Azure CLI output: {exc}", file=sys.stderr)
-              raise SystemExit(1)
-
-          if not isinstance(accounts, list):
-              print("::error::Unexpected Azure CLI output shape (expected account list).", file=sys.stderr)
-              raise SystemExit(1)
-
-          def normalize_endpoint(value: str) -> str:
-              value = (value or "").strip()
-              if not value:
-                  return ""
-              if "://" not in value:
-                  value = f"https://{value}"
-              parsed = urlparse(value)
-              host = (parsed.hostname or "").strip().lower()
-              return f"https://{host}" if host else ""
-
-          def normalize_kind(value: str) -> str:
-              # Collapse whitespace to support format variants from Azure CLI output.
-              return " ".join((value or "").split()).lower()
-
-          expected_endpoint = normalize_endpoint(endpoint)
-          if not expected_endpoint:
-              print("::error::Invalid AZURE_OPENAI_ENDPOINT value.", file=sys.stderr)
-              raise SystemExit(1)
-
-          expected_host = urlparse(expected_endpoint).hostname or ''
-          print(f"Searching {len(accounts)} AI account(s) for endpoint host: {expected_host}", file=sys.stderr)
-
-          if len(accounts) == 0:
-              print(
-                  "::error::No AI accounts found in the subscription. "
-                  "Ensure the service principal has at least 'Reader' access to the subscription, "
-                  "or set AZURE_OPENAI_RESOURCE_ID explicitly to skip auto-resolution.",
-                  file=sys.stderr,
-              )
-              raise SystemExit(1)
-
-          match = next(
-              (
-                  account.get('id', '')
-                  for account in accounts
-                  if normalize_endpoint(account.get('endpoint', '')) == expected_endpoint
-              ),
-              '',
-          )
-
-          if not match:
-              # Known Azure CLI kind values for Azure AI Foundry/OpenAI-capable accounts.
-              ai_kind_values = {
-                  'openai',
-                  'azureopenai',
-                  'azure openai',
-                  'aiservices',
-                  'ai services',
-                  'ai service',
-                  'azure ai services',
-              }
-              ai_accounts = [
-                  account
-                  for account in accounts
-                  if account.get('id') and normalize_kind(str(account.get('kind') or '')) in ai_kind_values
-              ]
-              if len(ai_accounts) == 1:
-                  selected = ai_accounts[0]
-                  match = selected.get('id', '')
-                  print(
-                      "Resolved via unique AI account kind fallback "
-                      "(useful for Azure AI Foundry project endpoints): "
-                      f"id={match}, name={selected.get('name', '(unknown)')}, "
-                      f"kind={selected.get('kind', '(unknown)')}, "
-                      f"endpoint={selected.get('endpoint', '(no endpoint)')}",
-                      file=sys.stderr,
-                  )
-              elif len(ai_accounts) > 1:
-                  print(
-                      f"::warning::Found {len(ai_accounts)} AI-capable accounts but no direct endpoint match. "
-                      "Set AZURE_OPENAI_RESOURCE_ID explicitly to choose the target account.",
-                      file=sys.stderr,
-                  )
-
-          if not match:
-              expected_name = expected_host.split('.', 1)[0].lower()
-              name_matches = [
-                  account.get('id', '')
-                  for account in accounts
-                  if expected_name and account.get('id', '').split('/')[-1].lower() == expected_name
-              ]
-              if len(name_matches) == 1:
-                  match = name_matches[0]
-                  print(f"Resolved via account name fallback: {match}", file=sys.stderr)
-              elif len(name_matches) > 1:
-                  print(
-                      f"::error::Ambiguous match: {len(name_matches)} accounts named '{expected_name}' found. "
-                      "Set AZURE_OPENAI_RESOURCE_ID explicitly to the full resource ID.",
-                      file=sys.stderr,
-                  )
-                  raise SystemExit(1)
-              else:
-                      discovered = [a.get('endpoint', '(no endpoint)') for a in accounts]
-                      print(
-                          f"::error::No AI account matched endpoint host '{expected_host}'. "
-                          f"Accounts visible in this subscription ({len(accounts)}): {discovered}. "
-                          "Azure AI Foundry project endpoints may not directly match the parent account endpoint. "
-                          "If the Azure OpenAI resource is in a different subscription, "
-                      "set AZURE_OPENAI_RESOURCE_ID explicitly to skip auto-resolution.",
-                      file=sys.stderr,
-                  )
-                  raise SystemExit(1)
-          else:
-              print(f"Resolved via endpoint match: {match}", file=sys.stderr)
-
-          print(match)
-          PY
-          )
-
-          if [ -z "$RESOURCE_ID" ]; then
-            echo "::error::Could not resolve Azure OpenAI resource ID from AZURE_OPENAI_ENDPOINT."
-            exit 1
-          fi
-
-          echo "AZURE_OPENAI_RESOURCE_ID=$RESOURCE_ID" >> "$GITHUB_ENV"
-
-      - name: Deploy Container Apps
-        uses: azure/arm-deploy@v2
-        id: apps
+        id: infra
         with:
           resourceGroupName: ${{ env.AZURE_RESOURCE_GROUP }}
           template: infra/main.bicep
           parameters: >-
             location=${{ env.AZURE_LOCATION }}
             baseName=demo-realtime-gpt
-            azureOpenAIResourceId=${{ env.AZURE_OPENAI_RESOURCE_ID }}
+            azureOpenAIResourceId=${{ secrets.AZURE_OPENAI_RESOURCE_ID }}
             azureOpenAIEndpoint=${{ secrets.AZURE_OPENAI_ENDPOINT }}
-            azureOpenAIApiKey=${{ secrets.AZURE_OPENAI_API_KEY }}
             imageTag=${{ env.IMAGE_TAG }}
           failOnStdErr: false
 
+      - name: ACR Login
+        run: |
+          ACR_NAME=$(echo "${{ steps.infra.outputs.acrLoginServer }}" | cut -d'.' -f1)
+          az acr login --name "$ACR_NAME"
+
+      - name: Build & Push SPA Image
+        run: |
+          docker build -t "${{ steps.infra.outputs.acrLoginServer }}/demo-realtime-gpt-spa:${{ env.IMAGE_TAG }}" .
+          docker push "${{ steps.infra.outputs.acrLoginServer }}/demo-realtime-gpt-spa:${{ env.IMAGE_TAG }}"
+
+      - name: Build & Push API Image
+        run: |
+          docker build -t "${{ steps.infra.outputs.acrLoginServer }}/demo-realtime-gpt-api:${{ env.IMAGE_TAG }}" ./services/api
+          docker push "${{ steps.infra.outputs.acrLoginServer }}/demo-realtime-gpt-api:${{ env.IMAGE_TAG }}"
+
+      - name: Update SPA Container App
+        run: |
+          az containerapp update \
+            --name demo-realtime-gpt-spa \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --image ${{ steps.infra.outputs.acrLoginServer }}/demo-realtime-gpt-spa:${{ env.IMAGE_TAG }}
+
+      - name: Update API Container App
+        run: |
+          az containerapp update \
+            --name demo-realtime-gpt-api \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --image ${{ steps.infra.outputs.acrLoginServer }}/demo-realtime-gpt-api:${{ env.IMAGE_TAG }}
+
       - name: Smoke Test — API Health Check
         run: |
-          SPA_URL="https://${{ steps.apps.outputs.spaUrl }}"
+          SPA_URL="https://${{ steps.infra.outputs.spaUrl }}"
           echo "Checking: ${SPA_URL}/health"
           max_attempts=12
           for i in $(seq 1 $max_attempts); do
@@ -318,7 +120,7 @@ jobs:
             echo "Attempt $i/$max_attempts: status=$status, retrying in 10s..."
             sleep 10
           done
-          echo "::warning::Health check did not return 200 after $max_attempts attempts (last status: $status). The app may still be starting up. Check the Azure portal for container app status."
+          echo "::warning::Health check did not return 200 after $max_attempts attempts. The app may still be starting up."
 
       - name: Deployment Summary
         if: always()
@@ -330,7 +132,7 @@ jobs:
           echo "| Commit | \`${{ env.IMAGE_TAG }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Resource Group | \`${{ env.AZURE_RESOURCE_GROUP }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Location | \`${{ env.AZURE_LOCATION }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| ACR | \`${{ steps.base.outputs.acrLoginServer }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| 🚀 SPA URL | https://${{ steps.apps.outputs.spaUrl }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| ACR | \`${{ steps.infra.outputs.acrLoginServer }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 🚀 SPA URL | https://${{ steps.infra.outputs.spaUrl }} |" >> "$GITHUB_STEP_SUMMARY"
           echo ""
-          echo "🚀 SPA URL: https://${{ steps.apps.outputs.spaUrl }}"
+          echo "🚀 SPA URL: https://${{ steps.infra.outputs.spaUrl }}"
