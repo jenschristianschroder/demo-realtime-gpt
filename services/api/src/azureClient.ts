@@ -10,6 +10,7 @@ export async function getAzureOpenAIToken(): Promise<string> {
 
 export function getRealtimeEndpoint(endpoint: string, deployment: string): string {
   const base = endpoint.replace(/\/+$/, '');
-  const apiVersion = process.env.AZURE_OPENAI_API_VERSION ?? '2025-04-01-preview';
-  return `${base.replace(/^https/, 'wss')}/openai/realtime?api-version=${apiVersion}&deployment=${encodeURIComponent(deployment)}`;
+  // GA endpoint format required for all Realtime models (gpt-realtime-1.5, etc.)
+  // See: https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/realtime-audio
+  return `${base.replace(/^https/, 'wss')}/openai/v1/realtime?deployment=${encodeURIComponent(deployment)}`;
 }

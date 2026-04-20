@@ -141,6 +141,12 @@ export function attachRealtimeWebSocket(server: Server): void {
       // Relay: Client → Azure (buffer messages until Azure is ready)
       clientWs.on('message', (data) => {
         if (azureWs && azureReady && azureWs.readyState === WebSocket.OPEN) {
+          try {
+            const parsed = JSON.parse(data.toString());
+            console.log('[relay] Client →', parsed.type);
+          } catch {
+            // binary frame
+          }
           azureWs.send(data);
         } else {
           messageBuffer.push(data);
