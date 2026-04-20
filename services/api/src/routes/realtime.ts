@@ -45,6 +45,35 @@ export function attachRealtimeWebSocket(server: Server): void {
       deployment: AZURE_OPENAI_DEPLOYMENT,
     });
 
+    // Register client handlers BEFORE async work so messages are buffered immediately
+    clientWs.on('message', (data) => {
+      if (azureWs && azureReady && azureWs.readyState === WebSocket.OPEN) {
+        try {
+          const parsed = JSON.parse(data.toString());
+          console.log('[relay] Client →', parsed.type);
+        } catch {
+          // binary frame
+        }
+        azureWs.send(data);
+      } else {
+        messageBuffer.push(data);
+      }
+    });
+
+    clientWs.on('close', () => {
+      console.log('[relay] Client disconnected');
+      if (azureWs && azureWs.readyState === WebSocket.OPEN) {
+        azureWs.close();
+      }
+    });
+
+    clientWs.on('error', (err) => {
+      console.error('[relay] Client WS error:', err.message);
+      if (azureWs && azureWs.readyState === WebSocket.OPEN) {
+        azureWs.close();
+      }
+    });
+
     try {
       const wsUrl = getRealtimeEndpoint(AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_DEPLOYMENT);
       sendDebug(clientWs, 'Acquiring Azure AD token via DefaultAzureCredential...');
@@ -141,35 +170,6 @@ export function attachRealtimeWebSocket(server: Server): void {
         sendDebug(clientWs, 'Azure WebSocket closed', { code, reason: reason.toString() });
         if (clientWs.readyState === WebSocket.OPEN) {
           clientWs.close(1000, 'Upstream closed');
-        }
-      });
-
-      // Relay: Client → Azure (buffer messages until Azure is ready)
-      clientWs.on('message', (data) => {
-        if (azureWs && azureReady && azureWs.readyState === WebSocket.OPEN) {
-          try {
-            const parsed = JSON.parse(data.toString());
-            console.log('[relay] Client →', parsed.type);
-          } catch {
-            // binary frame
-          }
-          azureWs.send(data);
-        } else {
-          messageBuffer.push(data);
-        }
-      });
-
-      clientWs.on('close', () => {
-        console.log('[relay] Client disconnected');
-        if (azureWs && azureWs.readyState === WebSocket.OPEN) {
-          azureWs.close();
-        }
-      });
-
-      clientWs.on('error', (err) => {
-        console.error('[relay] Client WS error:', err.message);
-        if (azureWs && azureWs.readyState === WebSocket.OPEN) {
-          azureWs.close();
         }
       });
     } catch (err) {
