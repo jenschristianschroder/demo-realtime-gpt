@@ -7,17 +7,13 @@ param location string = resourceGroup().location
 param baseName string = 'demo-realtime-gpt'
 
 @description('Azure OpenAI resource ID for role assignment')
-param azureOpenAIResourceId string = ''
+param azureOpenAIResourceId string
 
 @description('Container image tag')
 param imageTag string = 'latest'
 
 @description('Azure OpenAI endpoint')
 param azureOpenAIEndpoint string
-
-@description('Azure OpenAI API key (optional; when set, API key auth is used instead of managed identity)')
-@secure()
-param azureOpenAIApiKey string = ''
 
 @description('Azure OpenAI deployment name')
 param azureOpenAIDeployment string = 'gpt-4o-realtime-preview'
@@ -47,6 +43,7 @@ module identity 'modules/identity.bicep' = {
     location: location
     baseName: baseName
     acrId: acr.outputs.acrId
+    azureOpenAIResourceId: azureOpenAIResourceId
   }
 }
 
@@ -61,9 +58,7 @@ module api 'modules/aca-api.bicep' = {
     identityId: identity.outputs.identityId
     imageTag: imageTag
     azureOpenAIEndpoint: azureOpenAIEndpoint
-    azureOpenAIApiKey: azureOpenAIApiKey
     azureOpenAIDeployment: azureOpenAIDeployment
-    azureOpenAIResourceId: azureOpenAIResourceId
   }
 }
 
