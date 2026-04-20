@@ -72,13 +72,21 @@ export class RealtimeClient {
       if (!this.ws) return reject(new Error('WebSocket not initialized'));
 
       this.ws.onopen = () => {
+        // Send session config immediately; relay buffers it until Azure is connected
         this.sendSessionUpdate();
-        resolve();
       };
 
       this.ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data as string) as RealtimeEvent;
+
+          // Wait for the relay to signal the upstream session is live
+          if ((data as Record<string, unknown>).type === 'relay.ready') {
+            console.debug('[realtime] Relay signalled upstream is ready');
+            resolve();
+            return;
+          }
+
           this.handleEvent(data);
         } catch {
           // binary audio data or parse error — ignore
