@@ -62,18 +62,48 @@ export function attachRealtimeWebSocket(server: Server): void {
         sendDebug(clientWs, 'Successfully connected to Azure OpenAI Realtime');
         azureReady = true;
 
-        // Flush any messages that arrived before Azure was ready
-        if (messageBuffer.length > 0) {
-          sendDebug(clientWs, `Flushing ${messageBuffer.length} buffered message(s)`);
-        }
+        // Only flush session.update; discard buffered audio that arrived before Azure was ready
+        const sessionMessages: RawData[] = [];
+        let droppedCount = 0;
         for (const msg of messageBuffer) {
-          azureWs!.send(msg);
+          try {
+            const parsed = JSON.parse(msg.toString());
+            if (parsed.type === 'input_audio_buffer.append') {
+              droppedCount++;
+            } else {
+              sessionMessages.push(msg);
+            }
+          } catch {
+            // Non-JSON message — drop it
+            droppedCount++;
+          }
         }
         messageBuffer.length = 0;
+
+        if (sessionMessages.length > 0 || droppedCount > 0) {
+          sendDebug(clientWs, `Flushing ${sessionMessages.length} control message(s), dropped ${droppedCount} stale audio chunk(s)`);
+        }
+        for (const msg of sessionMessages) {
+          azureWs!.send(msg);
+        }
+
+        // Tell the client the upstream session is live
+        if (clientWs.readyState === WebSocket.OPEN) {
+          clientWs.send(JSON.stringify({ type: 'relay.ready' }));
+        }
       });
 
-      // Relay: Azure → Client
+      // Relay: Azure → Client (with server-side logging)
       azureWs.on('message', (data) => {
+        try {
+          const parsed = JSON.parse(data.toString());
+          console.log('[relay] Azure →', parsed.type);
+          if (parsed.type === 'error') {
+            console.error('[relay] Azure error event:', JSON.stringify(parsed.error));
+          }
+        } catch {
+          // binary frame — skip logging
+        }
         if (clientWs.readyState === WebSocket.OPEN) {
           clientWs.send(data);
         }

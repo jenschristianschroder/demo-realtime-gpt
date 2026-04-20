@@ -10,5 +10,6 @@ export async function getAzureOpenAIToken(): Promise<string> {
 
 export function getRealtimeEndpoint(endpoint: string, deployment: string): string {
   const base = endpoint.replace(/\/+$/, '');
-  return `${base.replace(/^https/, 'wss')}/openai/realtime?api-version=2025-04-01-preview&deployment=${encodeURIComponent(deployment)}`;
+  const apiVersion = process.env.AZURE_OPENAI_API_VERSION ?? '2025-04-01-preview';
+  return `${base.replace(/^https/, 'wss')}/openai/realtime?api-version=${apiVersion}&deployment=${encodeURIComponent(deployment)}`;
 }
