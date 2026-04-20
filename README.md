@@ -97,7 +97,7 @@ Open http://localhost:5173
 >
 > If `AZURE_OPENAI_API_KEY` is set, this value is optional and the workflow skips OpenAI resource ID auto-resolution/role-assignment.
 >
-> If omitted, the workflow attempts to auto-resolve it by listing Cognitive Services accounts in the
+> If omitted, the workflow attempts to auto-resolve it by listing Azure AI accounts in the
 > subscription and matching by endpoint URL. This fallback requires the service principal to have at
 > least **Reader** access at the subscription scope, and it will fail if the Azure OpenAI resource
 > lives in a different subscription. Setting this secret explicitly is strongly recommended.
@@ -131,7 +131,7 @@ is not set and auto-resolution fails. Common causes:
 | Azure OpenAI resource is in a different subscription | Set `AZURE_OPENAI_RESOURCE_ID` explicitly |
 | Service principal lacks subscription-level Reader access | Grant Reader on the subscription, or set `AZURE_OPENAI_RESOURCE_ID` |
 | `AZURE_OPENAI_ENDPOINT` value is wrong or misspelled | Correct the endpoint secret |
-| Azure AI Foundry project endpoint does not match parent account endpoint | Set `AZURE_OPENAI_RESOURCE_ID` explicitly (recommended), or ensure only one OpenAI account exists in the subscription for auto-fallback |
+| Azure AI Foundry project endpoint does not match parent account endpoint | Set `AZURE_OPENAI_RESOURCE_ID` explicitly (recommended), or ensure only one AI-capable account (`OpenAI`/`AIServices`) exists in the subscription for auto-fallback |
 | Multiple accounts with the same name | Set `AZURE_OPENAI_RESOURCE_ID` explicitly |
 
 **Quickest fix:** set `AZURE_OPENAI_RESOURCE_ID` in your GitHub repository secrets. You can find
@@ -139,9 +139,10 @@ the value in the Azure portal → your Azure OpenAI resource → **Properties** 
 or with:
 
 ```bash
-az cognitiveservices account show \
+az resource show \
   --name <resource-name> \
   --resource-group <resource-group> \
+  --resource-type Microsoft.CognitiveServices/accounts \
   --query id -o tsv
 ```
 
