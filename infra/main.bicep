@@ -37,8 +37,6 @@ module api 'modules/aca-api.bicep' = {
     location: location
     baseName: baseName
     environmentId: environment.outputs.environmentId
-    acrLoginServer: acr.outputs.acrLoginServer
-    acrName: acr.outputs.acrName
     azureOpenAIEndpoint: azureOpenAIEndpoint
     azureOpenAIDeployment: azureOpenAIDeployment
   }
@@ -51,12 +49,11 @@ module spa 'modules/aca-spa.bicep' = {
     location: location
     baseName: baseName
     environmentId: environment.outputs.environmentId
-    acrLoginServer: acr.outputs.acrLoginServer
-    acrName: acr.outputs.acrName
     apiHost: '${baseName}-api'
   }
 }
 
 output spaUrl string = spa.outputs.fqdn
 output acrLoginServer string = acr.outputs.acrLoginServer
-output identityPrincipalId string = api.outputs.principalId
+output apiPrincipalId string = api.outputs.principalId
+output spaPrincipalId string = spa.outputs.principalId

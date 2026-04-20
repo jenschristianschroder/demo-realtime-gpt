@@ -29,7 +29,8 @@ This is an **Azure OpenAI Realtime API** demo — a kiosk-style React SPA with a
 ### Container App Identity
 - Both container apps use **SystemAssigned** managed identity.
 - The API container app's system identity is used for Azure OpenAI access (Cognitive Services User role).
-- Each container app's system identity has AcrPull role assigned in its own Bicep module.
+- AcrPull roles and ACR registry configuration are handled in the GitHub Actions workflow (NOT in Bicep), because system-assigned identities don't exist until the container app is created, creating a circular dependency if done in Bicep.
+- **DO NOT** add `registries` configuration or AcrPull role assignments in the container app Bicep modules.
 
 ## Tech Stack
 

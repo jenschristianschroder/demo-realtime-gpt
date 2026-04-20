@@ -7,18 +7,8 @@ param baseName string
 @description('Container Apps Environment ID')
 param environmentId string
 
-@description('ACR login server')
-param acrLoginServer string
-
-@description('ACR name (for AcrPull role assignment)')
-param acrName string
-
 @description('Internal API host (container app name or host:port)')
 param apiHost string
-
-resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
-  name: acrName
-}
 
 resource spa 'Microsoft.App/containerApps@2024-03-01' = {
   name: '${baseName}-spa'
@@ -34,12 +24,6 @@ resource spa 'Microsoft.App/containerApps@2024-03-01' = {
         targetPort: 80
         transport: 'http'
       }
-      registries: [
-        {
-          server: acrLoginServer
-          identity: 'system'
-        }
-      ]
     }
     template: {
       containers: [
@@ -63,15 +47,5 @@ resource spa 'Microsoft.App/containerApps@2024-03-01' = {
   }
 }
 
-// AcrPull role for system-assigned identity
-resource acrPullRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(acr.id, spa.id, '7f951dda-4ed3-4680-a7ca-43fe172d538d')
-  scope: acr
-  properties: {
-    principalId: spa.identity.principalId
-    principalType: 'ServicePrincipal'
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')
-  }
-}
-
 output fqdn string = spa.properties.configuration.ingress.fqdn
+output principalId string = spa.identity.principalId

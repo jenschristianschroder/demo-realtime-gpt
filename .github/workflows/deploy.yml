@@ -78,12 +78,43 @@ jobs:
       - name: Assign Cognitive Services User Role
         run: |
           az role assignment create \
-            --assignee-object-id "${{ steps.infra.outputs.identityPrincipalId }}" \
+            --assignee-object-id "${{ steps.infra.outputs.apiPrincipalId }}" \
             --assignee-principal-type ServicePrincipal \
             --role "Cognitive Services User" \
             --scope "${{ secrets.AZURE_OPENAI_RESOURCE_ID }}" \
             --output none
           echo "✅ Cognitive Services User role assigned on Azure OpenAI resource."
+
+      - name: Assign AcrPull Roles
+        run: |
+          ACR_ID=$(az acr show --name "$(echo "${{ steps.infra.outputs.acrLoginServer }}" | cut -d'.' -f1)" --query id -o tsv)
+          az role assignment create \
+            --assignee-object-id "${{ steps.infra.outputs.apiPrincipalId }}" \
+            --assignee-principal-type ServicePrincipal \
+            --role AcrPull \
+            --scope "$ACR_ID" \
+            --output none
+          az role assignment create \
+            --assignee-object-id "${{ steps.infra.outputs.spaPrincipalId }}" \
+            --assignee-principal-type ServicePrincipal \
+            --role AcrPull \
+            --scope "$ACR_ID" \
+            --output none
+          echo "✅ AcrPull role assigned to both container apps."
+
+      - name: Configure ACR Registries
+        run: |
+          az containerapp registry set \
+            --name demo-realtime-gpt-api \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --server ${{ steps.infra.outputs.acrLoginServer }} \
+            --identity system
+          az containerapp registry set \
+            --name demo-realtime-gpt-spa \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --server ${{ steps.infra.outputs.acrLoginServer }} \
+            --identity system
+          echo "✅ ACR registry configured on both container apps."
 
       - name: ACR Login
         run: |
