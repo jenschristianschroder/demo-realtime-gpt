@@ -73,6 +73,7 @@ jobs:
             location=${{ env.AZURE_LOCATION }}
             baseName=demo-realtime-gpt
             azureOpenAIEndpoint=${{ secrets.AZURE_OPENAI_ENDPOINT }}
+            azureOpenAIDeployment=${{ vars.AZURE_OPENAI_DEPLOYMENT || 'gpt-4o-realtime-preview' }}
           failOnStdErr: false
 
       - name: Assign Cognitive Services User Role
