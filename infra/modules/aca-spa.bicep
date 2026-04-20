@@ -13,9 +13,6 @@ param acrLoginServer string
 @description('User-assigned managed identity resource ID')
 param identityId string
 
-@description('Container image tag')
-param imageTag string
-
 @description('Internal API host (container app name or host:port)')
 param apiHost string
 
@@ -47,7 +44,7 @@ resource spa 'Microsoft.App/containerApps@2024-03-01' = {
       containers: [
         {
           name: 'spa'
-          image: '${acrLoginServer}/${baseName}-spa:${imageTag}'
+          image: 'mcr.microsoft.com/k8se/quickstart:latest'
           resources: {
             cpu: json('0.25')
             memory: '0.5Gi'
