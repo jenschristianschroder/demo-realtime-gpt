@@ -30,16 +30,6 @@ module environment 'modules/aca-environment.bicep' = {
   }
 }
 
-// User-Assigned Managed Identity + ACR Pull Role
-module identity 'modules/identity.bicep' = {
-  name: 'identity'
-  params: {
-    location: location
-    baseName: baseName
-    acrId: acr.outputs.acrId
-  }
-}
-
 // API Container App (internal)
 module api 'modules/aca-api.bicep' = {
   name: 'api'
@@ -48,7 +38,7 @@ module api 'modules/aca-api.bicep' = {
     baseName: baseName
     environmentId: environment.outputs.environmentId
     acrLoginServer: acr.outputs.acrLoginServer
-    identityId: identity.outputs.identityId
+    acrName: acr.outputs.acrName
     azureOpenAIEndpoint: azureOpenAIEndpoint
     azureOpenAIDeployment: azureOpenAIDeployment
   }
@@ -62,11 +52,11 @@ module spa 'modules/aca-spa.bicep' = {
     baseName: baseName
     environmentId: environment.outputs.environmentId
     acrLoginServer: acr.outputs.acrLoginServer
-    identityId: identity.outputs.identityId
+    acrName: acr.outputs.acrName
     apiHost: '${baseName}-api'
   }
 }
 
 output spaUrl string = spa.outputs.fqdn
 output acrLoginServer string = acr.outputs.acrLoginServer
-output identityPrincipalId string = identity.outputs.identityPrincipalId
+output identityPrincipalId string = api.outputs.principalId

@@ -27,8 +27,9 @@ This is an **Azure OpenAI Realtime API** demo — a kiosk-style React SPA with a
 - **DO NOT** add `Microsoft.CognitiveServices/accounts` resource ID parsing/validation logic in Bicep.
 
 ### Container App Identity
-- The API container app uses **UserAssigned** identity (not SystemAssigned,UserAssigned).
-- The user-assigned managed identity is created in `identity.bicep` and shared by both container apps for ACR pull and Azure OpenAI access.
+- Both container apps use **SystemAssigned** managed identity.
+- The API container app's system identity is used for Azure OpenAI access (Cognitive Services User role).
+- Each container app's system identity has AcrPull role assigned in its own Bicep module.
 
 ## Tech Stack
 
@@ -62,7 +63,7 @@ This is an **Azure OpenAI Realtime API** demo — a kiosk-style React SPA with a
 ## File Structure Rules
 
 - `infra/main.bicep` — single entry point, references modules in `infra/modules/`
-- `infra/modules/` — only: `acr.bicep`, `aca-environment.bicep`, `aca-api.bicep`, `aca-spa.bicep`, `identity.bicep`
-- **DO NOT** add extra Bicep files like `base.bicep` or `openai-role-assignment.bicep`
+- `infra/modules/` — only: `acr.bicep`, `aca-environment.bicep`, `aca-api.bicep`, `aca-spa.bicep`
+- **DO NOT** add extra Bicep files like `base.bicep`, `identity.bicep`, or `openai-role-assignment.bicep`
 - `services/api/src/azureClient.ts` — token acquisition only, no API key functions
 - `services/api/src/routes/realtime.ts` — WebSocket relay, Managed Identity auth only
