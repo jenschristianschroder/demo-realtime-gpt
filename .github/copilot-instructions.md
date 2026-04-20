@@ -14,13 +14,15 @@ This is an **Azure OpenAI Realtime API** demo — a kiosk-style React SPA with a
 
 ### Azure OpenAI is NOT a standalone Cognitive Services resource
 - The Azure OpenAI resource is accessed via Azure AI Foundry.
-- The Bicep `identity.bicep` module assigns the **Cognitive Services User** role (`a97b65f3-24c7-4388-baec-2e87135dc908`) on the Azure OpenAI resource to the user-assigned managed identity.
+- The **Cognitive Services User** role (`a97b65f3-24c7-4388-baec-2e87135dc908`) is assigned via `az role assignment create` in the GitHub Actions workflow (NOT in Bicep), because the CLI command is idempotent while Bicep role assignments are not.
+- **DO NOT** add role assignments for Azure OpenAI in Bicep files — they cause `RoleAssignmentExists` errors on re-deploy.
 - **DO NOT** create separate `openai-role-assignment.bicep` modules or cross-resource-group deployments.
 - **DO NOT** add `az cognitiveservices account list` auto-resolution logic in the GitHub Actions workflow.
+- **DO NOT** add `Microsoft.CognitiveServices/accounts` resource ID parsing/validation logic in Bicep.
 - The `AZURE_OPENAI_RESOURCE_ID` is a **required** GitHub secret — it is not auto-resolved.
 
 ### Infrastructure: Single Bicep Deploy
-- All infrastructure is deployed in a **single `main.bicep`** deployment step.
+- All infrastructure is deployed in a **single `main.bicep`** deployment step, followed by an `az role assignment create` step for the Cognitive Services User role.
 - **DO NOT** split into `base.bicep` + `main.bicep` two-phase deployments.
 - **DO NOT** add `Microsoft.CognitiveServices/accounts` resource ID parsing/validation logic in Bicep.
 

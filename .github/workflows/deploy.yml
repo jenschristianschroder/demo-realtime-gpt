@@ -72,10 +72,19 @@ jobs:
           parameters: >-
             location=${{ env.AZURE_LOCATION }}
             baseName=demo-realtime-gpt
-            azureOpenAIResourceId=${{ secrets.AZURE_OPENAI_RESOURCE_ID }}
             azureOpenAIEndpoint=${{ secrets.AZURE_OPENAI_ENDPOINT }}
             imageTag=${{ env.IMAGE_TAG }}
           failOnStdErr: false
+
+      - name: Assign Cognitive Services User Role
+        run: |
+          az role assignment create \
+            --assignee-object-id "${{ steps.infra.outputs.identityPrincipalId }}" \
+            --assignee-principal-type ServicePrincipal \
+            --role "Cognitive Services User" \
+            --scope "${{ secrets.AZURE_OPENAI_RESOURCE_ID }}" \
+            --output none
+          echo "✅ Cognitive Services User role assigned on Azure OpenAI resource."
 
       - name: ACR Login
         run: |
