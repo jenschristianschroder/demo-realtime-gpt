@@ -84,6 +84,9 @@ export function attachRealtimeWebSocket(server: Server): void {
           sendDebug(clientWs, `Flushing ${sessionMessages.length} control message(s), dropped ${droppedCount} stale audio chunk(s)`);
         }
         for (const msg of sessionMessages) {
+          try {
+            console.log('[relay] Flushing →', msg.toString());
+          } catch { /* ignore */ }
           azureWs!.send(msg);
         }
 
@@ -98,6 +101,9 @@ export function attachRealtimeWebSocket(server: Server): void {
         try {
           const parsed = JSON.parse(data.toString());
           console.log('[relay] Azure →', parsed.type);
+          if (parsed.type === 'session.created') {
+            console.log('[relay] session.created →', JSON.stringify(parsed.session, null, 2));
+          }
           if (parsed.type === 'error') {
             console.error('[relay] Azure error event:', JSON.stringify(parsed.error));
           }
