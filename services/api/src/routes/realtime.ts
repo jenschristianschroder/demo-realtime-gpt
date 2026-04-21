@@ -89,7 +89,9 @@ export function attachRealtimeWebSocket(server: Server): void {
       const azureSocket = rt.socket;
 
       // Forward Azure → Client via the SDK's underlying socket
-      azureSocket.on('message', (data: Buffer) => {
+      // IMPORTANT: Azure sends JSON as Buffer; must forward as string (text frame) so the
+      // browser receives a string that JSON.parse can handle (not an ArrayBuffer).
+      azureSocket.on('message', (data: Buffer, isBinary: boolean) => {
         try {
           const parsed = JSON.parse(data.toString());
           console.log('[relay] Azure →', parsed.type);
@@ -139,7 +141,7 @@ export function attachRealtimeWebSocket(server: Server): void {
         }
 
         if (clientWs.readyState === WebSocket.OPEN) {
-          clientWs.send(data);
+          clientWs.send(isBinary ? data : data.toString());
         }
       });
 
