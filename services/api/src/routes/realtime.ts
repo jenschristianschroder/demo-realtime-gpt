@@ -41,7 +41,7 @@ export function attachRealtimeWebSocket(server: Server): void {
   wss.on('connection', async (clientWs: WebSocket) => {
     let rt: OpenAIRealtimeWS | null = null;
     let azureReady = false;
-    const messageBuffer: RawData[] = [];
+    const messageBuffer: { data: string | RawData; isBinary: boolean }[] = [];
 
     sendDebug(clientWs, 'Client connected to relay', {
       endpoint: AZURE_OPENAI_ENDPOINT,
@@ -49,7 +49,10 @@ export function attachRealtimeWebSocket(server: Server): void {
     });
 
     // Register client handlers BEFORE async work so messages are buffered immediately
-    clientWs.on('message', (data) => {
+    // IMPORTANT: Browser sends JSON as text frames, but ws receives them as Buffer.
+    // We must forward as string (text frame) — Azure Realtime API rejects JSON in binary frames.
+    clientWs.on('message', (data, isBinary) => {
+      const forward = isBinary ? data : data.toString();
       if (rt && azureReady && rt.socket.readyState === WebSocket.OPEN) {
         try {
           const parsed = JSON.parse(data.toString());
@@ -57,9 +60,9 @@ export function attachRealtimeWebSocket(server: Server): void {
         } catch {
           // binary frame
         }
-        rt.socket.send(data);
+        rt.socket.send(forward);
       } else {
-        messageBuffer.push(data);
+        messageBuffer.push({ data: forward, isBinary });
       }
     });
 
@@ -96,11 +99,11 @@ export function attachRealtimeWebSocket(server: Server): void {
 
             // Now it's safe to flush buffered control messages (session.update)
             azureReady = true;
-            const sessionMessages: RawData[] = [];
+            const sessionMessages: { data: string | RawData; isBinary: boolean }[] = [];
             let droppedCount = 0;
             for (const msg of messageBuffer) {
               try {
-                const msgParsed = JSON.parse(msg.toString());
+                const msgParsed = JSON.parse(msg.data.toString());
                 if (msgParsed.type === 'input_audio_buffer.append') {
                   droppedCount++;
                 } else {
@@ -117,9 +120,9 @@ export function attachRealtimeWebSocket(server: Server): void {
             }
             for (const msg of sessionMessages) {
               try {
-                console.log('[relay] Flushing →', msg.toString());
+                console.log('[relay] Flushing →', msg.data.toString());
               } catch { /* ignore */ }
-              azureSocket.send(msg);
+              azureSocket.send(msg.data);
             }
 
             // Tell the client the upstream session is live
