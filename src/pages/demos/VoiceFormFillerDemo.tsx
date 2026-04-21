@@ -32,7 +32,10 @@ const VoiceFormFillerDemo: React.FC = () => {
 When you identify a value for a field, say it clearly like: "Setting [Field Name] to [value]."
 Ask clarifying questions for any missing required fields. Be conversational and helpful.
 
-IMPORTANT: After each piece of information, confirm what you've captured.`;
+IMPORTANT: After each piece of information, confirm what you've captured.
+IMPORTANT: Whenever you set a field value, include a JSON block in your text response (the user won't see it) in exactly this format:
+<form_data>{"field":"EXACT_FIELD_NAME","value":"extracted value"}</form_data>
+You may include multiple <form_data> blocks in one response. Use the exact field names from this list: ${fieldList}.`;
 
   const {
     isListening,
@@ -51,11 +54,39 @@ IMPORTANT: After each piece of information, confirm what you've captured.`;
     const newValues: Record<string, string> = { ...fieldValues };
 
     for (const entry of assistantTexts) {
+      // Primary: parse structured <form_data> JSON blocks
+      const formDataRegex = /<form_data>\s*(\{[^}]+\})\s*<\/form_data>/gi;
+      let fdMatch;
+      while ((fdMatch = formDataRegex.exec(entry.text)) !== null) {
+        try {
+          const parsed = JSON.parse(fdMatch[1]) as { field?: string; value?: string };
+          if (parsed.field && parsed.value) {
+            // Match against known fields (case-insensitive)
+            const matchedField = formConfig.fields.find(
+              (f) => f.toLowerCase() === parsed.field!.toLowerCase()
+            );
+            if (matchedField) {
+              newValues[matchedField] = parsed.value;
+            }
+          }
+        } catch {
+          // ignore malformed JSON
+        }
+      }
+
+      // Fallback: match "Setting FIELD to VALUE" or "FIELD: VALUE" patterns
       for (const field of formConfig.fields) {
-        const regex = new RegExp(`${field.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^:]*[:to]+\\s*(.+?)(?:\\.|$)`, 'i');
-        const match = regex.exec(entry.text);
-        if (match) {
-          newValues[field] = match[1].trim();
+        const escaped = field.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const patterns = [
+          new RegExp(`[Ss]etting\\s+${escaped}\\s+to\\s+["']?(.+?)["']?(?:\\.|,|;|$)`, 'i'),
+          new RegExp(`${escaped}\\s*(?::|is|to)\\s+["']?(.+?)["']?(?:\\.|,|;|$)`, 'i'),
+        ];
+        for (const regex of patterns) {
+          const match = regex.exec(entry.text);
+          if (match && match[1].trim() && !newValues[field]) {
+            newValues[field] = match[1].trim();
+            break;
+          }
         }
       }
     }
