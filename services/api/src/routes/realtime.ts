@@ -88,41 +88,8 @@ export function attachRealtimeWebSocket(server: Server): void {
 
       azureWs.on('open', () => {
         console.log('[relay] Connected to Azure OpenAI Realtime');
-        sendDebug(clientWs, 'Successfully connected to Azure OpenAI Realtime');
-        azureReady = true;
-
-        // Only flush session.update; discard buffered audio that arrived before Azure was ready
-        const sessionMessages: RawData[] = [];
-        let droppedCount = 0;
-        for (const msg of messageBuffer) {
-          try {
-            const parsed = JSON.parse(msg.toString());
-            if (parsed.type === 'input_audio_buffer.append') {
-              droppedCount++;
-            } else {
-              sessionMessages.push(msg);
-            }
-          } catch {
-            // Non-JSON message — drop it
-            droppedCount++;
-          }
-        }
-        messageBuffer.length = 0;
-
-        if (sessionMessages.length > 0 || droppedCount > 0) {
-          sendDebug(clientWs, `Flushing ${sessionMessages.length} control message(s), dropped ${droppedCount} stale audio chunk(s)`);
-        }
-        for (const msg of sessionMessages) {
-          try {
-            console.log('[relay] Flushing →', msg.toString());
-          } catch { /* ignore */ }
-          azureWs!.send(msg);
-        }
-
-        // Tell the client the upstream session is live
-        if (clientWs.readyState === WebSocket.OPEN) {
-          clientWs.send(JSON.stringify({ type: 'relay.ready' }));
-        }
+        sendDebug(clientWs, 'Successfully connected to Azure OpenAI Realtime, waiting for session.created...');
+        // Do NOT flush yet — must wait for session.created before sending session.update
       });
 
       // Relay: Azure → Client (with server-side logging)
@@ -132,6 +99,39 @@ export function attachRealtimeWebSocket(server: Server): void {
           console.log('[relay] Azure →', parsed.type);
           if (parsed.type === 'session.created') {
             console.log('[relay] session.created →', JSON.stringify(parsed.session, null, 2));
+
+            // Now it's safe to flush buffered control messages (session.update)
+            azureReady = true;
+            const sessionMessages: RawData[] = [];
+            let droppedCount = 0;
+            for (const msg of messageBuffer) {
+              try {
+                const msgParsed = JSON.parse(msg.toString());
+                if (msgParsed.type === 'input_audio_buffer.append') {
+                  droppedCount++;
+                } else {
+                  sessionMessages.push(msg);
+                }
+              } catch {
+                droppedCount++;
+              }
+            }
+            messageBuffer.length = 0;
+
+            if (sessionMessages.length > 0 || droppedCount > 0) {
+              sendDebug(clientWs, `Flushing ${sessionMessages.length} control message(s), dropped ${droppedCount} stale audio chunk(s)`);
+            }
+            for (const msg of sessionMessages) {
+              try {
+                console.log('[relay] Flushing →', msg.toString());
+              } catch { /* ignore */ }
+              azureWs!.send(msg);
+            }
+
+            // Tell the client the upstream session is live
+            if (clientWs.readyState === WebSocket.OPEN) {
+              clientWs.send(JSON.stringify({ type: 'relay.ready' }));
+            }
           }
           if (parsed.type === 'error') {
             console.error('[relay] Azure error event:', JSON.stringify(parsed.error));
