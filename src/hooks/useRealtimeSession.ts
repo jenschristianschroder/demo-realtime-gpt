@@ -54,7 +54,14 @@ export function useRealtimeSession(options: UseRealtimeSessionOptions): UseRealt
       }
       case 'response.audio_transcript.done': {
         const finalText = (event.transcript as string) ?? partialAssistantRef.current;
-        addTranscriptEntry({ role: 'assistant', text: finalText, isFinal: true, timestamp: Date.now() });
+        // Replace the partial (non-final) assistant entry with the final one
+        setTranscript((prev) => {
+          const last = prev[prev.length - 1];
+          if (last && last.role === 'assistant' && !last.isFinal) {
+            return [...prev.slice(0, -1), { role: 'assistant' as const, text: finalText, isFinal: true, timestamp: Date.now() }];
+          }
+          return [...prev, { role: 'assistant' as const, text: finalText, isFinal: true, timestamp: Date.now() }];
+        });
         partialAssistantRef.current = '';
         break;
       }
