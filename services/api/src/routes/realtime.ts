@@ -1,7 +1,8 @@
 import { IncomingMessage } from 'http';
 import { WebSocketServer, WebSocket, RawData } from 'ws';
 import type { Server } from 'http';
-import { getAzureOpenAIToken, getRealtimeEndpoint } from '../azureClient.js';
+import { OpenAIRealtimeWS } from 'openai/realtime/ws';
+import { createAzureOpenAIClient } from '../azureClient.js';
 
 const AZURE_OPENAI_ENDPOINT = process.env.AZURE_OPENAI_ENDPOINT ?? '';
 const AZURE_OPENAI_DEPLOYMENT = process.env.AZURE_OPENAI_DEPLOYMENT ?? 'gpt-4o-realtime-preview';
@@ -22,6 +23,8 @@ export function attachRealtimeWebSocket(server: Server): void {
     return;
   }
 
+  const openAIClient = createAzureOpenAIClient(AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_DEPLOYMENT);
+
   const wss = new WebSocketServer({ noServer: true });
 
   server.on('upgrade', (request: IncomingMessage, socket, head) => {
@@ -36,7 +39,7 @@ export function attachRealtimeWebSocket(server: Server): void {
   });
 
   wss.on('connection', async (clientWs: WebSocket) => {
-    let azureWs: WebSocket | null = null;
+    let rt: OpenAIRealtimeWS | null = null;
     let azureReady = false;
     const messageBuffer: RawData[] = [];
 
@@ -47,14 +50,14 @@ export function attachRealtimeWebSocket(server: Server): void {
 
     // Register client handlers BEFORE async work so messages are buffered immediately
     clientWs.on('message', (data) => {
-      if (azureWs && azureReady && azureWs.readyState === WebSocket.OPEN) {
+      if (rt && azureReady && rt.socket.readyState === WebSocket.OPEN) {
         try {
           const parsed = JSON.parse(data.toString());
           console.log('[relay] Client →', parsed.type);
         } catch {
           // binary frame
         }
-        azureWs.send(data);
+        rt.socket.send(data);
       } else {
         messageBuffer.push(data);
       }
@@ -62,41 +65,32 @@ export function attachRealtimeWebSocket(server: Server): void {
 
     clientWs.on('close', () => {
       console.log('[relay] Client disconnected');
-      if (azureWs && azureWs.readyState === WebSocket.OPEN) {
-        azureWs.close();
-      }
+      rt?.close();
     });
 
     clientWs.on('error', (err) => {
       console.error('[relay] Client WS error:', err.message);
-      if (azureWs && azureWs.readyState === WebSocket.OPEN) {
-        azureWs.close();
-      }
+      rt?.close();
     });
 
     try {
-      const wsUrl = getRealtimeEndpoint(AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_DEPLOYMENT);
-      sendDebug(clientWs, 'Acquiring Azure AD token via DefaultAzureCredential...');
-      const token = await getAzureOpenAIToken();
-      sendDebug(clientWs, 'Azure AD token acquired, connecting to Azure OpenAI Realtime');
+      sendDebug(clientWs, 'Connecting via OpenAI SDK (token acquisition + WebSocket)...');
+      rt = await OpenAIRealtimeWS.azure(openAIClient);
+      sendDebug(clientWs, 'SDK connection created, waiting for session.created...');
 
-      azureWs = new WebSocket(wsUrl, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
+      // Prevent unhandled SDK error events from crashing the process
+      rt.on('error', (err) => {
+        console.error('[relay] SDK error event:', err instanceof Error ? err.message : err);
       });
 
-      azureWs.on('open', () => {
-        console.log('[relay] Connected to Azure OpenAI Realtime');
-        sendDebug(clientWs, 'Successfully connected to Azure OpenAI Realtime, waiting for session.created...');
-        // Do NOT flush yet — must wait for session.created before sending session.update
-      });
+      const azureSocket = rt.socket;
 
-      // Relay: Azure → Client (with server-side logging)
-      azureWs.on('message', (data) => {
+      // Forward Azure → Client via the SDK's underlying socket
+      azureSocket.on('message', (data: Buffer) => {
         try {
           const parsed = JSON.parse(data.toString());
           console.log('[relay] Azure →', parsed.type);
+
           if (parsed.type === 'session.created') {
             console.log('[relay] session.created →', JSON.stringify(parsed.session, null, 2));
 
@@ -125,7 +119,7 @@ export function attachRealtimeWebSocket(server: Server): void {
               try {
                 console.log('[relay] Flushing →', msg.toString());
               } catch { /* ignore */ }
-              azureWs!.send(msg);
+              azureSocket.send(msg);
             }
 
             // Tell the client the upstream session is live
@@ -133,28 +127,25 @@ export function attachRealtimeWebSocket(server: Server): void {
               clientWs.send(JSON.stringify({ type: 'relay.ready' }));
             }
           }
+
           if (parsed.type === 'error') {
             console.error('[relay] Azure error event:', JSON.stringify(parsed.error));
           }
         } catch {
           // binary frame — skip logging
         }
+
         if (clientWs.readyState === WebSocket.OPEN) {
           clientWs.send(data);
         }
       });
 
-      azureWs.on('error', (err) => {
+      azureSocket.on('error', (err: Error) => {
         console.error('[relay] Azure WS error:', err.message);
         sendDebug(clientWs, 'Azure WebSocket error', {
           errorMessage: err.message,
           endpoint: AZURE_OPENAI_ENDPOINT,
           deployment: AZURE_OPENAI_DEPLOYMENT,
-          hint: err.message.includes('401')
-            ? 'Authentication failed. Verify the managed identity has Cognitive Services User role on the Azure OpenAI resource.'
-            : err.message.includes('404')
-              ? 'Endpoint or deployment not found. Verify AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_DEPLOYMENT.'
-              : undefined,
         });
         if (clientWs.readyState === WebSocket.OPEN) {
           clientWs.send(JSON.stringify({
@@ -165,7 +156,7 @@ export function attachRealtimeWebSocket(server: Server): void {
         }
       });
 
-      azureWs.on('close', (code, reason) => {
+      azureSocket.on('close', (code: number, reason: Buffer) => {
         console.log(`[relay] Azure WS closed: ${code} ${reason.toString()}`);
         sendDebug(clientWs, 'Azure WebSocket closed', { code, reason: reason.toString() });
         if (clientWs.readyState === WebSocket.OPEN) {
@@ -179,7 +170,7 @@ export function attachRealtimeWebSocket(server: Server): void {
         errorMessage: message,
         endpoint: AZURE_OPENAI_ENDPOINT,
         deployment: AZURE_OPENAI_DEPLOYMENT,
-        hint: 'Token acquisition failed. Ensure DefaultAzureCredential is properly configured (managed identity in Azure, Azure CLI locally).',
+        hint: 'SDK connection failed. Ensure DefaultAzureCredential is properly configured (managed identity in Azure, Azure CLI locally).',
       });
       if (clientWs.readyState === WebSocket.OPEN) {
         clientWs.send(JSON.stringify({

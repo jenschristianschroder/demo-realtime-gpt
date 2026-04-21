@@ -1,16 +1,15 @@
-import { DefaultAzureCredential } from '@azure/identity';
+import { AzureOpenAI } from 'openai';
+import { DefaultAzureCredential, getBearerTokenProvider } from '@azure/identity';
 
 const credential = new DefaultAzureCredential();
 const scope = 'https://cognitiveservices.azure.com/.default';
+const azureADTokenProvider = getBearerTokenProvider(credential, scope);
 
-export async function getAzureOpenAIToken(): Promise<string> {
-  const token = await credential.getToken(scope);
-  return token.token;
-}
-
-export function getRealtimeEndpoint(endpoint: string, deployment: string): string {
-  const base = endpoint.replace(/\/+$/, '');
-  // Preview endpoint format — proven to work with gpt-realtime-1.5 via the OpenAI SDK
-  // Uses /openai/realtime with api-version + deployment query parameters
-  return `${base.replace(/^https/, 'wss')}/openai/realtime?api-version=2024-10-01-preview&deployment=${encodeURIComponent(deployment)}`;
+export function createAzureOpenAIClient(endpoint: string, deployment: string): AzureOpenAI {
+  return new AzureOpenAI({
+    azureADTokenProvider,
+    endpoint: endpoint.replace(/\/+$/, ''),
+    deployment,
+    apiVersion: '2024-10-01-preview',
+  });
 }
