@@ -33,9 +33,10 @@ When you identify a value for a field, say it clearly like: "Setting [Field Name
 Ask clarifying questions for any missing required fields. Be conversational and helpful.
 
 IMPORTANT: After each piece of information, confirm what you've captured.
-IMPORTANT: Whenever you set a field value, include a JSON block in your text response (the user won't see it) in exactly this format:
+IMPORTANT: Whenever you set a field value, you MUST append a hidden metadata tag at the VERY END of your response, AFTER all spoken text. Use exactly this format:
 <form_data>{"field":"EXACT_FIELD_NAME","value":"extracted value"}</form_data>
-You may include multiple <form_data> blocks in one response. Use the exact field names from this list: ${fieldList}.`;
+NEVER read aloud, speak, or vocalize the <form_data> tags or their contents. They are invisible metadata only. Do NOT include them in the middle of your spoken sentences — always place them silently at the very end.
+You may include multiple <form_data> blocks. Use the exact field names from this list: ${fieldList}.`;
 
   const {
     isListening,
@@ -162,11 +163,16 @@ You may include multiple <form_data> blocks in one response. Use the exact field
         </div>
         <div className="transcript-area">
           {transcript.length === 0 && <span className="transcript-placeholder">Start dictating your form…</span>}
-          {transcript.map((entry, i) => (
-            <div key={i} className={entry.role === 'assistant' ? 'transcript-assistant' : (entry.isFinal ? 'transcript-final' : 'transcript-partial')}>
-              <strong>{entry.role === 'user' ? 'You' : 'Assistant'}:</strong> {entry.text}
-            </div>
-          ))}
+          {transcript.map((entry, i) => {
+            const displayText = entry.role === 'assistant'
+              ? entry.text.replace(/<form_data>[\s\S]*?<\/form_data>/gi, '').trim()
+              : entry.text;
+            return (
+              <div key={i} className={entry.role === 'assistant' ? 'transcript-assistant' : (entry.isFinal ? 'transcript-final' : 'transcript-partial')}>
+                <strong>{entry.role === 'user' ? 'You' : 'Assistant'}:</strong> {displayText}
+              </div>
+            );
+          })}
         </div>
       </div>
 
